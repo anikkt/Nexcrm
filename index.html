@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — NexCRM</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body class="auth-page">
+  <div class="auth-split">
+    <div class="auth-brand">
+      <div class="auth-brand-inner">
+        <div class="brand-logo-lg"><span>N</span></div>
+        <h2 class="brand-headline">Customer relationships,<br>simplified.</h2>
+        <p class="brand-sub">Manage tickets, customers, and your team — all in one place.</p>
+        <div class="brand-stats">
+          <div class="brand-stat"><span class="bs-num">2.4k</span><span class="bs-label">Tickets resolved</span></div>
+          <div class="brand-stat"><span class="bs-num">98%</span><span class="bs-label">CSAT score</span></div>
+          <div class="brand-stat"><span class="bs-num">12</span><span class="bs-label">Team members</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="auth-form-side">
+      <div class="auth-card">
+        <div class="auth-logo-row">
+          <div class="auth-logo-icon">N</div>
+          <span class="auth-logo-text">NexCRM</span>
+        </div>
+        <h1 class="auth-title">Welcome back</h1>
+        <p class="auth-subtitle">Sign in to your account to continue</p>
+        <div id="auth-error" class="auth-error hidden"></div>
+        <div class="form-stack">
+          <div class="form-field">
+            <label>Email address</label>
+            <input type="email" id="email" class="input" placeholder="you@company.com" autocomplete="email" />
+          </div>
+          <div class="form-field">
+            <label>Password</label>
+            <div class="input-with-icon">
+              <input type="password" id="password" class="input" placeholder="Your password" autocomplete="current-password" id="password" />
+              <button class="input-eye" onclick="togglePwd()" type="button" id="eye-btn">👁</button>
+            </div>
+          </div>
+          <div class="form-row-split">
+            <label class="checkbox-label"><input type="checkbox" id="remember"> Remember me</label>
+            <a href="#" class="link" style="font-size:13px">Forgot password?</a>
+          </div>
+          <button class="btn btn-primary btn-full" onclick="doLogin()" id="login-btn">Sign in</button>
+        </div>
+        <div class="auth-divider"><span>Demo credentials</span></div>
+        <div class="demo-creds">
+          <div class="demo-cred" onclick="fillDemo('admin@nexcrm.dev','Admin@1234')">
+            <span class="role-pill admin">Admin</span>
+            <span>admin@nexcrm.dev</span>
+          </div>
+          <div class="demo-cred" onclick="fillDemo('manager@nexcrm.dev','Manager@1234')">
+            <span class="role-pill manager">Manager</span>
+            <span>manager@nexcrm.dev</span>
+          </div>
+          <div class="demo-cred" onclick="fillDemo('agent@nexcrm.dev','Agent@1234')">
+            <span class="role-pill analyst">Analyst</span>
+            <span>agent@nexcrm.dev</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="js/store.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    // Redirect if already logged in
+    if (NexCRM.Auth.getSession()) window.location.href = 'app.html';
+
+    function fillDemo(email, pwd) {
+      document.getElementById('email').value = email;
+      document.getElementById('password').value = pwd;
+    }
+    function togglePwd() {
+      const inp = document.getElementById('password');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+    }
+    function doLogin() {
+      const email = document.getElementById('email').value.trim();
+      const pwd = document.getElementById('password').value;
+      const errEl = document.getElementById('auth-error');
+      const btn = document.getElementById('login-btn');
+      errEl.classList.add('hidden');
+      if (!email || !pwd) { showErr('Please enter your email and password.'); return; }
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      setTimeout(() => {
+        const result = NexCRM.Auth.login(email, pwd);
+        if (result.error) { showErr(result.error); btn.disabled = false; btn.textContent = 'Sign in'; }
+        else { window.location.href = 'app.html#dashboard'; }
+      }, 400);
+    }
+    function showErr(msg) {
+      const el = document.getElementById('auth-error');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  </script>
+</body>
+</html>
