@@ -1,5 +1,8 @@
 // main.js — bootstrap and router
 (function () {
+  // Apply persisted theme immediately
+  if (localStorage.getItem('ncm_theme') === 'dark') document.body.classList.add('dark');
+
   const user = NexCRM.Auth.requireAuth();
   if (!user) return;
 
