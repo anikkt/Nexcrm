@@ -16,7 +16,7 @@
 
       case 'tickets':
         if (rest[0]) NexCRM.Tickets.render(rest[0]);
-        else { NexCRM.Tickets.render(); if (params.q) NexCRM.Tickets.renderList(params.q); }
+        else NexCRM.Tickets.renderList(params.q !== undefined ? decodeURIComponent(params.q) : undefined);
         break;
 
       case 'customers':
