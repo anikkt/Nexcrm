@@ -5,14 +5,15 @@ window.NexCRM = window.NexCRM || {};
   // STEP 1: Paste your Firebase config here
   // Get it from: Firebase Console → Project Settings → Your apps → SDK setup
   // ═══════════════════════════════════════════════════════════════════════════
-  const FIREBASE_CONFIG = {
-    apiKey:            "PASTE_YOUR_API_KEY",
-    authDomain:        "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-    projectId:         "PASTE_YOUR_PROJECT_ID",
-    storageBucket:     "PASTE_YOUR_PROJECT_ID.appspot.com",
-    messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
-    appId:             "PASTE_YOUR_APP_ID"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyCP72XrSAWIyBl6x-FEVovG9B6QplGg9Ls",
+  authDomain: "nexcrm-36647.firebaseapp.com",
+  projectId: "nexcrm-36647",
+  storageBucket: "nexcrm-36647.firebasestorage.app",
+  messagingSenderId: "1021268709360",
+  appId: "1:1021268709360:web:9e53a3efc1a51c6d37d735",
+  measurementId: "G-8Z683WS198"
+};
   // ═══════════════════════════════════════════════════════════════════════════
 
   // Initialize Firebase (guard against double-init)
