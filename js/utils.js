@@ -92,6 +92,9 @@ window.NexCRM = window.NexCRM || {};
 
   function userName(id) { if (!id) return '—'; const u = NexCRM.Store.Users.get(id); return u ? u.name : '—'; }
   function customerName(id) { if (!id) return '—'; const c = NexCRM.Store.Customers.get(id); return c ? c.name : '—'; }
+  function departmentName(id) { if (!id) return '—'; const d = NexCRM.Store.Departments?.get(id); return d ? d.name : '—'; }
+  function categoryName(id)   { if (!id) return '—'; const c = NexCRM.Store.TicketCategories?.get(id); return c ? c.name : '—'; }
+  function categoryColor(id)  { if (!id) return '#94a3b8'; const c = NexCRM.Store.TicketCategories?.get(id); return c ? c.color : '#94a3b8'; }
 
   function exportCSV(rows, filename) {
     if (!rows.length) return;
@@ -146,7 +149,7 @@ window.NexCRM = window.NexCRM || {};
     return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;flex-shrink:0">${_IP[name]||''}</svg>`;
   }
 
-  window.NexCRM.Utils = { toast, openModal, closeModal, handleBackdropClick, confirm, _doConfirm, avatar, statusBadge, priorityBadge, fmtDate, fmtRelative, userName, customerName, exportCSV, esc, STATUS_CFG, PRIORITY_CFG, icon };
+  window.NexCRM.Utils = { toast, openModal, closeModal, handleBackdropClick, confirm, _doConfirm, avatar, statusBadge, priorityBadge, fmtDate, fmtRelative, userName, customerName, departmentName, categoryName, categoryColor, exportCSV, esc, STATUS_CFG, PRIORITY_CFG, icon };
   window.NexCRM.toast = toast;
   window.NexCRM.icon = icon;
 })();
