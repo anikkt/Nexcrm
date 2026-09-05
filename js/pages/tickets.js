@@ -6,40 +6,40 @@ window.NexCRM = window.NexCRM || {};
   let _parsedCSV=[];
 
   // ── Column manager ─────────────────────────────────────────────────────────
-  const COL_DEFS = [
-    {key:'number',     label:'ID'},
-    {key:'subject',    label:'Subject'},
-    {key:'category',   label:'Category'},
-    {key:'department', label:'Department'},
-    {key:'priority',   label:'Priority'},
-    {key:'status',     label:'Status'},
-    {key:'assigned',   label:'Assigned'},
-    {key:'due',        label:'Due'},
-    {key:'customer',   label:'Customer'},
-    {key:'company',    label:'Company'},
-    {key:'created',    label:'Created'},
+  const COL_DEFS=[
+    {key:'number',label:'ID'},{key:'subject',label:'Subject'},{key:'category',label:'Category'},
+    {key:'department',label:'Department'},{key:'priority',label:'Priority'},{key:'status',label:'Status'},
+    {key:'assigned',label:'Assigned'},{key:'due',label:'Due'},{key:'customer',label:'Customer'},
+    {key:'company',label:'Company'},{key:'created',label:'Created'},
   ];
-  const DEFAULT_COLS = ['number','subject','category','department','priority','status','assigned','due'];
-  const getCols  = () => { try{return JSON.parse(localStorage.getItem('ncm_tcols'))||[...DEFAULT_COLS];}catch{return[...DEFAULT_COLS];} };
-  const saveCols = c => localStorage.setItem('ncm_tcols',JSON.stringify(c));
+  const DEFAULT_COLS=['number','subject','category','department','priority','status','assigned','due'];
+  const getCols  = () => {try{return JSON.parse(localStorage.getItem('ncm_tcols'))||[...DEFAULT_COLS];}catch{return[...DEFAULT_COLS];}};
+  const saveCols = c  => localStorage.setItem('ncm_tcols',JSON.stringify(c));
+
+  // ── Field display colours for Change History ───────────────────────────────
+  const FIELD_COLORS = {
+    'Created':'#10b981','Status':'#6366f1','Priority':'#f43f5e','Category':'#8b5cf6',
+    'Department':'#06b6d4','Assigned to':'#10b981','Customer':'#f59e0b','Due Date':'#94a3b8',
+    'Subject':'#64748b','Comment Added':'#8b5cf6',
+  };
 
   // ── Sorting ────────────────────────────────────────────────────────────────
-  function _sort(arr) {
+  function _sort(arr){
     const S=NexCRM.Utils, PM={critical:4,high:3,medium:2,low:1};
-    return [...arr].sort((a,b) => {
+    return [...arr].sort((a,b)=>{
       let av,bv;
-      switch(_sortCol) {
-        case'number':     av=a.number; bv=b.number; break;
-        case'subject':    av=(a.subject||'').toLowerCase(); bv=(b.subject||'').toLowerCase(); break;
-        case'priority':   av=PM[a.priority]||0; bv=PM[b.priority]||0; break;
-        case'status':     av=a.status||''; bv=b.status||''; break;
-        case'assigned':   av=S.userName(a.assignedToId).toLowerCase(); bv=S.userName(b.assignedToId).toLowerCase(); break;
-        case'due':        av=a.dueDate||'zzz'; bv=b.dueDate||'zzz'; break;
-        case'customer':   av=S.customerName(a.customerId).toLowerCase(); bv=S.customerName(b.customerId).toLowerCase(); break;
-        case'department': av=S.departmentName(a.departmentId).toLowerCase(); bv=S.departmentName(b.departmentId).toLowerCase(); break;
-        case'category':   av=S.categoryName(a.categoryId).toLowerCase(); bv=S.categoryName(b.categoryId).toLowerCase(); break;
-        case'created':    av=a.createdAt||''; bv=b.createdAt||''; break;
-        default:          av=a.number; bv=b.number;
+      switch(_sortCol){
+        case'number':    av=a.number;bv=b.number;break;
+        case'subject':   av=(a.subject||'').toLowerCase();bv=(b.subject||'').toLowerCase();break;
+        case'priority':  av=PM[a.priority]||0;bv=PM[b.priority]||0;break;
+        case'status':    av=a.status||'';bv=b.status||'';break;
+        case'assigned':  av=S.userName(a.assignedToId).toLowerCase();bv=S.userName(b.assignedToId).toLowerCase();break;
+        case'due':       av=a.dueDate||'zzz';bv=b.dueDate||'zzz';break;
+        case'customer':  av=S.customerName(a.customerId).toLowerCase();bv=S.customerName(b.customerId).toLowerCase();break;
+        case'department':av=S.departmentName(a.departmentId).toLowerCase();bv=S.departmentName(b.departmentId).toLowerCase();break;
+        case'category':  av=S.categoryName(a.categoryId).toLowerCase();bv=S.categoryName(b.categoryId).toLowerCase();break;
+        case'created':   av=a.createdAt||'';bv=b.createdAt||'';break;
+        default:         av=a.number;bv=b.number;
       }
       if(typeof av==='number')return _sortDir==='asc'?av-bv:bv-av;
       if(_sortDir==='asc')return av<bv?-1:av>bv?1:0;
@@ -50,22 +50,16 @@ window.NexCRM = window.NexCRM || {};
   function _ind(col){if(_sortCol!==col)return`<span class="sort-ind">↕</span>`;return`<span class="sort-ind active">${_sortDir==='asc'?'↑':'↓'}</span>`;}
   function _th(col,label){return`<th class="sort-th" onclick="NexCRM.Tickets._setSort('${col}')">${label}${_ind(col)}</th>`;}
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  function render(ticketNum) {
-    NexCRM.Layout.renderSidebar('tickets');
-    if(ticketNum) renderDetail(ticketNum);
-    else renderList();
-  }
+  function render(ticketNum){NexCRM.Layout.renderSidebar('tickets');if(ticketNum)renderDetail(ticketNum);else renderList();}
 
-  function renderList(queryOverride) {
-    if(queryOverride!==undefined) _q=queryOverride;
-    NexCRM.Layout.renderTopbar('Tickets');
-    NexCRM.Layout.renderSidebar('tickets');
-    const S=NexCRM.Utils, Ic=NexCRM.icon;
-    const user=NexCRM.Auth.getUser();
+  // ── List ──────────────────────────────────────────────────────────────────
+  function renderList(queryOverride){
+    if(queryOverride!==undefined)_q=queryOverride;
+    NexCRM.Layout.renderTopbar('Tickets');NexCRM.Layout.renderSidebar('tickets');
+    const S=NexCRM.Utils, Ic=NexCRM.icon, user=NexCRM.Auth.getUser();
     let tickets=NexCRM.Store.Tickets.getAll();
 
-    if(user.role==='analyst'||user.role==='agent') tickets=tickets.filter(t=>t.assignedToId===user.id);
+    if(user.role==='analyst'||user.role==='agent')tickets=tickets.filter(t=>t.assignedToId===user.id);
     if(_q){const q=_q.toLowerCase();tickets=tickets.filter(t=>t.subject.toLowerCase().includes(q)||t.number.toLowerCase().includes(q)||S.customerName(t.customerId).toLowerCase().includes(q)||S.departmentName(t.departmentId).toLowerCase().includes(q)||S.categoryName(t.categoryId).toLowerCase().includes(q));}
     if(_status!=='all')   tickets=tickets.filter(t=>t.status===_status);
     if(_priority!=='all') tickets=tickets.filter(t=>t.priority===_priority);
@@ -74,46 +68,29 @@ window.NexCRM = window.NexCRM || {};
     if(_cat!=='all')      tickets=tickets.filter(t=>t.categoryId===_cat);
     tickets=_sort(tickets);
 
-    const customers = NexCRM.Store.Customers.getAll();
-    const depts     = NexCRM.Store.Departments.getAll();
-    const cats      = NexCRM.Store.TicketCategories.getAll();
-    const canCreate = NexCRM.Auth.isManager();
-    const visibleCols = getCols();
+    const customers=NexCRM.Store.Customers.getAll(),depts=NexCRM.Store.Departments.getAll(),cats=NexCRM.Store.TicketCategories.getAll();
+    const canCreate=NexCRM.Auth.isManager(), visibleCols=getCols();
+    const sOpts=`<option value="all">All statuses</option>`+Object.entries(S.STATUS_CFG).map(([k,v])=>`<option value="${k}" ${_status===k?'selected':''}>${v.l}</option>`).join('');
+    const pOpts=`<option value="all">All priorities</option>`+Object.entries(S.PRIORITY_CFG).map(([k,v])=>`<option value="${k}" ${_priority===k?'selected':''}>${v.l}</option>`).join('');
+    const cuOpts=`<option value="all">All customers</option>`+customers.map(c=>`<option value="${c.id}" ${_customer===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
+    const dOpts=`<option value="all">All departments</option>`+depts.map(d=>`<option value="${d.id}" ${_dept===d.id?'selected':''}>${S.esc(d.name)}</option>`).join('');
+    const cOpts=`<option value="all">All categories</option>`+cats.map(c=>`<option value="${c.id}" ${_cat===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
+    const thCells=visibleCols.map(k=>{const def=COL_DEFS.find(c=>c.key===k);return def?_th(k,def.label):'';}).join('');
 
-    const sOpts  = `<option value="all">All statuses</option>`  +Object.entries(S.STATUS_CFG).map(([k,v])=>`<option value="${k}" ${_status===k?'selected':''}>${v.l}</option>`).join('');
-    const pOpts  = `<option value="all">All priorities</option>`+Object.entries(S.PRIORITY_CFG).map(([k,v])=>`<option value="${k}" ${_priority===k?'selected':''}>${v.l}</option>`).join('');
-    const cuOpts = `<option value="all">All customers</option>` +customers.map(c=>`<option value="${c.id}" ${_customer===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
-    const dOpts  = `<option value="all">All departments</option>`+depts.map(d=>`<option value="${d.id}" ${_dept===d.id?'selected':''}>${S.esc(d.name)}</option>`).join('');
-    const cOpts  = `<option value="all">All categories</option>`+cats.map(c=>`<option value="${c.id}" ${_cat===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
-
-    const thCells = visibleCols.map(k=>{
-      const def=COL_DEFS.find(c=>c.key===k); return def?_th(k,def.label):'';
-    }).join('');
-
-    function rowCell(t,k) {
+    function rowCell(t,k){
       switch(k){
-        case'number':     return`<td class="td-mono">${t.number}</td>`;
-        case'subject':    return`<td><div class="cell-title">${S.esc(t.subject)}</div><div class="cell-sub">${S.esc(S.customerName(t.customerId))}</div></td>`;
-        case'category': {
-          const cat=NexCRM.Store.TicketCategories.get(t.categoryId);
-          return cat
-            ? `<td><span class="badge" style="background:${cat.color}18;color:${cat.color}">${S.esc(cat.name)}</span></td>`
-            : `<td class="text-muted" style="font-size:12px">—</td>`;
-        }
-        case'department': {
-          const dep=NexCRM.Store.Departments.get(t.departmentId);
-          return dep
-            ? `<td><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2)"><div style="width:7px;height:7px;border-radius:50%;background:${dep.color}"></div>${S.esc(dep.name)}</span></td>`
-            : `<td class="text-muted" style="font-size:12px">—</td>`;
-        }
-        case'priority': return`<td>${S.priorityBadge(t.priority)}</td>`;
-        case'status':   return`<td>${S.statusBadge(t.status)}</td>`;
-        case'assigned': return`<td class="td-sm">${S.esc(S.userName(t.assignedToId))}</td>`;
-        case'due':      return`<td class="td-sm" style="color:${t.dueDate&&t.dueDate<new Date().toISOString().slice(0,10)&&!['resolved','closed'].includes(t.status)?'var(--rose)':'var(--text-3)'}">${t.dueDate||'—'}</td>`;
-        case'customer': return`<td class="td-sm">${S.esc(S.customerName(t.customerId))}</td>`;
-        case'company':  return`<td class="td-sm">${S.esc(NexCRM.Store.Customers.get(t.customerId)?.company||'—')}</td>`;
-        case'created':  return`<td class="td-sm">${S.fmtDate(t.createdAt)}</td>`;
-        default:        return'<td></td>';
+        case'number':    return`<td class="td-mono">${t.number}</td>`;
+        case'subject':   return`<td><div class="cell-title">${S.esc(t.subject)}</div><div class="cell-sub">${S.esc(S.customerName(t.customerId))}</div></td>`;
+        case'category': {const cat=NexCRM.Store.TicketCategories.get(t.categoryId);return cat?`<td><span class="badge" style="background:${cat.color}18;color:${cat.color}">${S.esc(cat.name)}</span></td>`:`<td class="text-muted" style="font-size:12px">—</td>`;}
+        case'department':{const dep=NexCRM.Store.Departments.get(t.departmentId);return dep?`<td><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2)"><div style="width:7px;height:7px;border-radius:50%;background:${dep.color}"></div>${S.esc(dep.name)}</span></td>`:`<td class="text-muted" style="font-size:12px">—</td>`;}
+        case'priority':  return`<td>${S.priorityBadge(t.priority)}</td>`;
+        case'status':    return`<td>${S.statusBadge(t.status)}</td>`;
+        case'assigned':  return`<td class="td-sm">${S.esc(S.userName(t.assignedToId))}</td>`;
+        case'due':       return`<td class="td-sm" style="color:${t.dueDate&&t.dueDate<new Date().toISOString().slice(0,10)&&!['resolved','closed'].includes(t.status)?'var(--rose)':'var(--text-3)'}">${t.dueDate||'—'}</td>`;
+        case'customer':  return`<td class="td-sm">${S.esc(S.customerName(t.customerId))}</td>`;
+        case'company':   return`<td class="td-sm">${S.esc(NexCRM.Store.Customers.get(t.customerId)?.company||'—')}</td>`;
+        case'created':   return`<td class="td-sm">${S.fmtDate(t.createdAt)}</td>`;
+        default:         return'<td></td>';
       }
     }
 
@@ -126,14 +103,10 @@ window.NexCRM = window.NexCRM || {};
         </td>
       </tr>`).join('');
 
-    document.getElementById('page-content').innerHTML = `
+    document.getElementById('page-content').innerHTML=`
       <div class="page-body">
         <div class="toolbar" style="flex-wrap:wrap;gap:8px">
-          <div class="search-inline">
-            ${Ic('search',14)}
-            <input type="text" id="ticket-search" placeholder="Search tickets…" value="${S.esc(_q)}"
-              oninput="NexCRM.Tickets._setQ(this.value)" style="width:160px">
-          </div>
+          <div class="search-inline">${Ic('search',14)}<input type="text" id="ticket-search" placeholder="Search tickets…" value="${S.esc(_q)}" oninput="NexCRM.Tickets._setQ(this.value)" style="width:155px"></div>
           <select class="filter-select" onchange="NexCRM.Tickets._setSt(this.value)">${sOpts}</select>
           <select class="filter-select" onchange="NexCRM.Tickets._setPr(this.value)">${pOpts}</select>
           <select class="filter-select" onchange="NexCRM.Tickets._setCust(this.value)">${cuOpts}</select>
@@ -142,13 +115,13 @@ window.NexCRM = window.NexCRM || {};
           <div style="flex:1"></div>
           ${canCreate?`<button class="btn btn-primary" onclick="NexCRM.Tickets.openCreateModal()">${Ic('plus',15)} New ticket</button>`:''}
           ${canCreate?`<button class="btn btn-ghost" onclick="NexCRM.Tickets.openImportModal()">${Ic('upload',14)} Import CSV</button>`:''}
-          <button class="btn btn-ghost" onclick="NexCRM.Tickets.exportData()">${Ic('download',14)} Export</button>
+          <button class="btn btn-ghost" onclick="NexCRM.Tickets.exportEventLog(null)">${Ic('download',14)} Event log</button>
           ${NexCRM.Auth.isAdmin()?`<button class="btn btn-ghost" onclick="NexCRM.Tickets.openColumnManager()" title="Columns">${Ic('settings',14)}</button>`:''}
         </div>
         <div class="card-flush">
           ${tickets.length
-            ? `<table class="data-table"><thead><tr>${thCells}<th></th></tr></thead><tbody>${rows}</tbody></table>`
-            : `<div class="empty-state">${Ic('tickets',40)}<div class="empty-state-title">No tickets found</div><div class="empty-state-body">Adjust filters or create a new ticket.</div>${canCreate?`<button class="btn btn-primary" onclick="NexCRM.Tickets.openCreateModal()">Create ticket</button>`:''}</div>`}
+            ?`<table class="data-table"><thead><tr>${thCells}<th></th></tr></thead><tbody>${rows}</tbody></table>`
+            :`<div class="empty-state">${Ic('tickets',40)}<div class="empty-state-title">No tickets found</div><div class="empty-state-body">Adjust filters or create a new ticket.</div>${canCreate?`<button class="btn btn-primary" onclick="NexCRM.Tickets.openCreateModal()">Create ticket</button>`:''}</div>`}
           <div class="table-footer">
             <span class="text-muted">${tickets.length} ticket${tickets.length!==1?'s':''}</span>
             <button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets._clearFilters()">Clear filters</button>
@@ -160,14 +133,12 @@ window.NexCRM = window.NexCRM || {};
     if(si&&_q){const l=_q.length;si.focus();try{si.setSelectionRange(l,l);}catch(e){}}
   }
 
-  // ── Detail view ────────────────────────────────────────────────────────────
-  function renderDetail(num) {
+  // ── Detail view with Change History ───────────────────────────────────────
+  function renderDetail(num){
     const t=NexCRM.Store.Tickets.get(num);
     if(!t){NexCRM.toast('Ticket not found','error');location.hash='#tickets';return;}
-    NexCRM.Layout.renderTopbar(t.number);
-    NexCRM.Layout.renderSidebar('tickets');
-    const S=NexCRM.Utils, Ic=NexCRM.icon;
-    const user=NexCRM.Auth.getUser();
+    NexCRM.Layout.renderTopbar(t.number);NexCRM.Layout.renderSidebar('tickets');
+    const S=NexCRM.Utils,Ic=NexCRM.icon,user=NexCRM.Auth.getUser();
     const canEdit=NexCRM.Auth.isManager()||user.id===t.assignedToId;
     const customer=NexCRM.Store.Customers.get(t.customerId);
     const dept=NexCRM.Store.Departments.get(t.departmentId);
@@ -177,33 +148,41 @@ window.NexCRM = window.NexCRM || {};
     const sOpts=Object.entries(S.STATUS_CFG).map(([k,v])=>`<option value="${k}" ${t.status===k?'selected':''}>${v.l}</option>`).join('');
     const pOpts=Object.entries(S.PRIORITY_CFG).map(([k,v])=>`<option value="${k}" ${t.priority===k?'selected':''}>${v.l}</option>`).join('');
     const aOpts=`<option value="">Unassigned</option>`+users.map(u=>`<option value="${u.id}" ${t.assignedToId===u.id?'selected':''}>${S.esc(u.name)}</option>`).join('');
-
     const deptOpts=`<option value="">No department</option>`+NexCRM.Store.Departments.getAll().map(d=>`<option value="${d.id}" ${t.departmentId===d.id?'selected':''}>${S.esc(d.name)}</option>`).join('');
     const catOpts=`<option value="">No category</option>`+NexCRM.Store.TicketCategories.getAll().map(c=>`<option value="${c.id}" ${t.categoryId===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
 
+    // Comments
     const comments=(t.comments||[]).map(c=>{
       const a=NexCRM.Store.Users.get(c.authorId);
       const cc=['#6366f1','#8b5cf6','#06b6d4','#10b981','#f59e0b','#f43f5e'];
       const ci=a?((a.name.charCodeAt(0)||0)+(a.name.charCodeAt(1)||0))%cc.length:0;
       const ini=a?a.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase():'??';
-      return `<div class="comment-item">
-        <div class="comment-avatar" style="background:${cc[ci]}22;border-color:${cc[ci]}44;color:${cc[ci]}">${ini}</div>
-        <div style="flex:1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-          <span style="font-size:13px;font-weight:600;color:var(--s800)">${a?S.esc(a.name):'Unknown'}</span>
-          <span class="text-muted" style="font-size:11px">${S.fmtRelative(c.createdAt)}</span>
-          ${c.internal?`<span class="internal-badge">Internal</span>`:''}
-        </div><div class="comment-body">${S.esc(c.text)}</div></div>
-      </div>`;
+      return`<div class="comment-item"><div class="comment-avatar" style="background:${cc[ci]}22;border-color:${cc[ci]}44;color:${cc[ci]}">${ini}</div><div style="flex:1"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:13px;font-weight:600;color:var(--s800)">${a?S.esc(a.name):'Unknown'}</span><span class="text-muted" style="font-size:11px">${S.fmtRelative(c.createdAt)}</span>${c.internal?`<span class="internal-badge">Internal</span>`:''}</div><div class="comment-body">${S.esc(c.text)}</div></div></div>`;
     }).join('')||`<p class="text-muted" style="font-size:13px">No comments yet.</p>`;
 
-    const timeline=[
-      {e:'Ticket created',t:S.fmtDate(t.createdAt),c:'#6366f1'},
-      t.assignedToId?{e:`Assigned to ${S.userName(t.assignedToId)}`,t:S.fmtRelative(t.updatedAt),c:'#06b6d4'}:null,
-      {e:`Status: ${S.STATUS_CFG[t.status]?.l||t.status}`,t:S.fmtRelative(t.updatedAt),c:'#8b5cf6'},
-      (t.comments||[]).length?{e:`${t.comments.length} comment${t.comments.length>1?'s':''}`,t:'',c:'#f59e0b'}:null,
-    ].filter(Boolean);
+    // Change history table — all events sorted by timestamp asc
+    const changeLog=(t.changeLog||[]).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+    const clRows=changeLog.map(cl=>{
+      const editor=NexCRM.Store.Users.get(cl.editedById);
+      const fc=FIELD_COLORS[cl.field]||'#94a3b8';
+      const dt=new Date(cl.timestamp);
+      const dtStr=`${S.fmtDate(cl.timestamp)} ${dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;
+      return`<tr>
+        <td class="td-sm" style="white-space:nowrap;color:var(--text-2)">${dtStr}</td>
+        <td><span class="badge" style="background:${fc}18;color:${fc};font-size:11px">${S.esc(cl.field)}</span></td>
+        <td class="td-sm" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-3)">${cl.oldValue?S.esc(cl.oldValue):'<span style="color:var(--text-3)">—</span>'}</td>
+        <td style="display:flex;align-items:center;gap:6px">
+          ${cl.oldValue?`<span class="td-sm" style="color:var(--text-3)">${S.esc(cl.oldValue)}</span><span style="color:var(--text-3);font-size:11px">→</span>`:''}
+          <span class="td-sm" style="color:var(--text-2);font-weight:${cl.field==='Created'?'600':'400'}">${cl.newValue?S.esc(cl.newValue):'<span style="color:var(--text-3)">—</span>'}</span>
+        </td>
+        <td class="td-sm">${editor?S.esc(editor.name):'—'}</td>
+      </tr>`;
+    }).join('')||`<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-3);font-size:13px">No change history yet.</td></tr>`;
 
-    document.getElementById('page-content').innerHTML = `
+    // Closed date from changeLog
+    const closedEvent=[...changeLog].reverse().find(cl=>cl.field==='Status'&&cl.newRaw==='closed');
+
+    document.getElementById('page-content').innerHTML=`
       <div class="page-body">
         <div class="detail-header">
           <a href="#tickets" class="btn btn-ghost btn-sm">${Ic('arrow_dn',13)} Back</a>
@@ -261,40 +240,57 @@ window.NexCRM = window.NexCRM || {};
               <div class="detail-field"><span>Company</span><span>${customer?S.esc(customer.company):'—'}</span></div>
               <div class="detail-field"><span>Due date</span><span>${t.dueDate||'—'}</span></div>
               <div class="detail-field"><span>Created</span><span>${S.fmtDate(t.createdAt)}</span></div>
+              ${closedEvent?`<div class="detail-field"><span>Closed</span><span>${S.fmtDate(closedEvent.timestamp)}</span></div>`:''}
               <div class="detail-field"><span>Updated</span><span>${S.fmtRelative(t.updatedAt)}</span></div>
             </div>
-            <div class="card">
-              <div class="card-title" style="margin-bottom:12px">Activity</div>
-              ${timeline.map((e,i)=>`<div class="activity-item" ${i===timeline.length-1?'style="border-left:none"':''}><div class="activity-dot" style="background:${e.c}"></div><div><div style="font-size:12px;color:var(--s700);font-weight:500">${e.e}</div>${e.t?`<div style="font-size:11px;color:var(--s400)">${e.t}</div>`:''}</div></div>`).join('')}
-            </div>
           </div>
+        </div>
+
+        <!-- Change History — full width, below detail grid -->
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div>
+              <div class="card-title">Change history</div>
+              <div class="text-muted" style="font-size:12px;margin-top:2px">${changeLog.length} event${changeLog.length!==1?'s':''} recorded for ${t.number}</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets.exportEventLog('${t.id}')">${Ic('download',13)} Export event log</button>
+          </div>
+          <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+            <table class="data-table">
+              <thead><tr>
+                <th style="min-width:140px">Date / Time</th>
+                <th style="min-width:120px">Field / Event</th>
+                <th style="min-width:120px">Old value</th>
+                <th style="min-width:160px">New value</th>
+                <th style="min-width:120px">Changed by</th>
+              </tr></thead>
+              <tbody>${clRows}</tbody>
+            </table>
+          </div>
+          ${!changeLog.length?'':''}
         </div>
       </div>`;
   }
 
-  // ── Create/Edit form ───────────────────────────────────────────────────────
-  function _ticketForm(t) {
+  // ── Ticket form ────────────────────────────────────────────────────────────
+  function _ticketForm(t){
     const S=NexCRM.Utils;
-    const custs=NexCRM.Store.Customers.getAll();
-    const users=NexCRM.Store.Users.getAll().filter(u=>u.active);
-    const depts=NexCRM.Store.Departments.getAll();
-    const cats=NexCRM.Store.TicketCategories.getAll();
-
-    const cuOpts=custs.map(c=>`<option value="${c.id}" ${t&&t.customerId===c.id?'selected':''}>${S.esc(c.name)} — ${S.esc(c.company)}</option>`).join('');
-    const sOpts=Object.entries(S.STATUS_CFG).map(([k,v])=>`<option value="${k}" ${t?t.status===k?'selected':'':k==='new'?'selected':''}>${v.l}</option>`).join('');
-    const pOpts=Object.entries(S.PRIORITY_CFG).map(([k,v])=>`<option value="${k}" ${t?t.priority===k?'selected':'':k==='medium'?'selected':''}>${v.l}</option>`).join('');
-    const aOpts=`<option value="">Unassigned</option>`+users.map(u=>`<option value="${u.id}" ${t&&t.assignedToId===u.id?'selected':''}>${S.esc(u.name)}</option>`).join('');
-    const dOpts=`<option value="">No department</option>`+depts.map(d=>`<option value="${d.id}" ${t&&t.departmentId===d.id?'selected':''}><span style="color:${d.color}">●</span> ${S.esc(d.name)}</option>`).join('');
-    const cOpts=`<option value="">No category</option>`+cats.map(c=>`<option value="${c.id}" ${t&&t.categoryId===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
-
-    return `<div class="form-grid">
+    const custs=NexCRM.Store.Customers.getAll(),users=NexCRM.Store.Users.getAll().filter(u=>u.active);
+    const depts=NexCRM.Store.Departments.getAll(),cats=NexCRM.Store.TicketCategories.getAll();
+    const cuO=custs.map(c=>`<option value="${c.id}" ${t&&t.customerId===c.id?'selected':''}>${S.esc(c.name)} — ${S.esc(c.company)}</option>`).join('');
+    const sO=Object.entries(S.STATUS_CFG).map(([k,v])=>`<option value="${k}" ${t?t.status===k?'selected':'':k==='new'?'selected':''}>${v.l}</option>`).join('');
+    const pO=Object.entries(S.PRIORITY_CFG).map(([k,v])=>`<option value="${k}" ${t?t.priority===k?'selected':'':k==='medium'?'selected':''}>${v.l}</option>`).join('');
+    const aO=`<option value="">Unassigned</option>`+users.map(u=>`<option value="${u.id}" ${t&&t.assignedToId===u.id?'selected':''}>${S.esc(u.name)}</option>`).join('');
+    const dO=`<option value="">No department</option>`+depts.map(d=>`<option value="${d.id}" ${t&&t.departmentId===d.id?'selected':''}>${S.esc(d.name)}</option>`).join('');
+    const cO=`<option value="">No category</option>`+cats.map(c=>`<option value="${c.id}" ${t&&t.categoryId===c.id?'selected':''}>${S.esc(c.name)}</option>`).join('');
+    return`<div class="form-grid">
       <div class="form-field full-width"><label>Subject <span class="required">*</span></label><input type="text" id="f-subject" class="input" value="${t?S.esc(t.subject):''}" placeholder="Brief description of the issue"></div>
-      <div class="form-field"><label>Customer <span class="required">*</span></label><select id="f-customer" class="input"><option value="">Select customer…</option>${cuOpts}</select></div>
-      <div class="form-field"><label>Department</label><select id="f-dept" class="input">${dOpts}</select></div>
-      <div class="form-field"><label>Category</label><select id="f-cat" class="input">${cOpts}</select></div>
-      <div class="form-field"><label>Priority</label><select id="f-priority" class="input">${pOpts}</select></div>
-      <div class="form-field"><label>Status</label><select id="f-status" class="input">${sOpts}</select></div>
-      <div class="form-field"><label>Assign to</label><select id="f-assigned" class="input">${aOpts}</select></div>
+      <div class="form-field"><label>Customer <span class="required">*</span></label><select id="f-customer" class="input"><option value="">Select customer…</option>${cuO}</select></div>
+      <div class="form-field"><label>Department</label><select id="f-dept" class="input">${dO}</select></div>
+      <div class="form-field"><label>Category</label><select id="f-cat" class="input">${cO}</select></div>
+      <div class="form-field"><label>Priority</label><select id="f-priority" class="input">${pO}</select></div>
+      <div class="form-field"><label>Status</label><select id="f-status" class="input">${sO}</select></div>
+      <div class="form-field"><label>Assign to</label><select id="f-assigned" class="input">${aO}</select></div>
       <div class="form-field"><label>Due date</label><input type="date" id="f-due" class="input" value="${t&&t.dueDate?t.dueDate:''}"></div>
       <div class="form-field full-width"><label>Case description</label><textarea id="f-desc" class="input" rows="4" placeholder="Detailed description of the issue…">${t?S.esc(t.description):''}</textarea></div>
     </div>`;
@@ -305,15 +301,37 @@ window.NexCRM = window.NexCRM || {};
 
   function _rf(){return{subject:document.getElementById('f-subject')?.value.trim(),customerId:document.getElementById('f-customer')?.value,departmentId:document.getElementById('f-dept')?.value||null,categoryId:document.getElementById('f-cat')?.value||null,priority:document.getElementById('f-priority')?.value,status:document.getElementById('f-status')?.value,assignedToId:document.getElementById('f-assigned')?.value||null,dueDate:document.getElementById('f-due')?.value||null,description:document.getElementById('f-desc')?.value.trim()||''};}
 
-  function create(){const d=_rf();if(!d.subject){NexCRM.toast('Subject is required','error');return;}if(!d.customerId){NexCRM.toast('Customer is required','error');return;}const t=NexCRM.Store.Tickets.create(d);if(d.assignedToId)NexCRM.Store.Notifications.add({userId:d.assignedToId,type:'info',title:`${t.number} assigned to you`,body:d.subject,link:`#tickets/${t.number}`,read:false});NexCRM.Utils.closeModal();NexCRM.toast(`${t.number} created`,'success');renderList();}
-  function update(id){const d=_rf();if(!d.subject){NexCRM.toast('Subject is required','error');return;}if(!d.customerId){NexCRM.toast('Customer is required','error');return;}const t=NexCRM.Store.Tickets.update(id,d);NexCRM.Utils.closeModal();NexCRM.toast('Ticket updated','success');if(t)renderDetail(t.number);}
-  function patchField(id,field,value){NexCRM.Store.Tickets.update(id,{[field]:value||null});NexCRM.toast('Saved','success');if(field==='assignedToId'&&value){const t=NexCRM.Store.Tickets.get(id);NexCRM.Store.Notifications.add({userId:value,type:'info',title:`${t.number} assigned to you`,body:t.subject,link:`#tickets/${t.number}`,read:false});}}
+  function create(){
+    const d=_rf();if(!d.subject){NexCRM.toast('Subject is required','error');return;}if(!d.customerId){NexCRM.toast('Customer is required','error');return;}
+    const userId=NexCRM.Auth.getUser()?.id;
+    const t=NexCRM.Store.Tickets.create({...d,_editedBy:userId});
+    if(d.assignedToId)NexCRM.Store.Notifications.add({userId:d.assignedToId,type:'info',title:`${t.number} assigned to you`,body:d.subject,link:`#tickets/${t.number}`,read:false});
+    NexCRM.Utils.closeModal();NexCRM.toast(`${t.number} created`,'success');renderList();
+  }
+  function update(id){
+    const d=_rf();if(!d.subject){NexCRM.toast('Subject is required','error');return;}if(!d.customerId){NexCRM.toast('Customer is required','error');return;}
+    const userId=NexCRM.Auth.getUser()?.id;
+    const t=NexCRM.Store.Tickets.update(id,d,userId);
+    NexCRM.Utils.closeModal();NexCRM.toast('Ticket updated','success');if(t)renderDetail(t.number);
+  }
+  function patchField(id,field,value){
+    const userId=NexCRM.Auth.getUser()?.id;
+    NexCRM.Store.Tickets.update(id,{[field]:value||null},userId);
+    NexCRM.toast('Saved','success');
+    if(field==='assignedToId'&&value){const t=NexCRM.Store.Tickets.get(id);NexCRM.Store.Notifications.add({userId:value,type:'info',title:`${t.number} assigned to you`,body:t.subject,link:`#tickets/${t.number}`,read:false});}
+  }
   function confirmDelete(id,num){NexCRM.Utils.confirm(`Delete <strong>${num}</strong>? This cannot be undone.`,()=>{NexCRM.Store.Tickets.delete(id);NexCRM.toast(`${num} deleted`,'success');location.hash='#tickets';},'Delete','danger');}
-  function addComment(ticketId){const text=document.getElementById('comment-text')?.value.trim();const internal=document.getElementById('comment-internal')?.checked||false;if(!text){NexCRM.toast('Comment cannot be empty','error');return;}NexCRM.Store.Tickets.addComment(ticketId,{authorId:NexCRM.Auth.getUser().id,text,internal});NexCRM.toast('Comment added','success');const t=NexCRM.Store.Tickets.get(ticketId);if(t)renderDetail(t.number);}
+  function addComment(ticketId){
+    const text=document.getElementById('comment-text')?.value.trim();
+    const internal=document.getElementById('comment-internal')?.checked||false;
+    if(!text){NexCRM.toast('Comment cannot be empty','error');return;}
+    NexCRM.Store.Tickets.addComment(ticketId,{authorId:NexCRM.Auth.getUser().id,text,internal});
+    NexCRM.toast('Comment added','success');
+    const t=NexCRM.Store.Tickets.get(ticketId);if(t)renderDetail(t.number);
+  }
 
   // ── Column manager ─────────────────────────────────────────────────────────
   function openColumnManager(){
-    const S=NexCRM.Utils;
     const visible=getCols();
     const body=`<p style="font-size:12px;color:var(--s500);margin-bottom:12px">Toggle which columns appear in the ticket table.</p>
       <div style="display:flex;flex-direction:column;gap:6px">
@@ -321,14 +339,73 @@ window.NexCRM = window.NexCRM || {};
           <button class="toggle-switch${visible.includes(c.key)?' on':''}" id="ctog-${c.key}" onclick="NexCRM.Tickets._toggleCol('${c.key}')"><div class="toggle-knob"></div></button>
         </div>`).join('')}
       </div>`;
-    S.openModal('Manage columns',body,`<button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets._resetCols()">Reset defaults</button><button class="btn btn-primary" onclick="NexCRM.Utils.closeModal()">Done</button>`);
+    NexCRM.Utils.openModal('Manage columns',body,`<button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets._resetCols()">Reset defaults</button><button class="btn btn-primary" onclick="NexCRM.Utils.closeModal()">Done</button>`);
   }
   function _toggleCol(key){const v=getCols();const ni=v.indexOf(key);let nc;if(ni>=0){if(v.length<=2){NexCRM.toast('At least 2 columns required','error');return;}nc=v.filter(c=>c!==key);}else{nc=[...v,key];}saveCols(nc);const btn=document.getElementById('ctog-'+key);if(btn)btn.classList.toggle('on',nc.includes(key));renderList();}
   function _resetCols(){saveCols([...DEFAULT_COLS]);NexCRM.Utils.closeModal();renderList();}
 
+  // ── Event log export — matches the Excel format exactly ───────────────────
+  function exportEventLog(ticketId) {
+    const S=NexCRM.Utils;
+    const allTickets=NexCRM.Store.Tickets.getAll();
+    const tickets=ticketId?allTickets.filter(t=>t.id===ticketId||t.number===ticketId):allTickets;
+
+    const rows=[];
+    for(const t of tickets) {
+      const customer=NexCRM.Store.Customers.get(t.customerId);
+      const dept=NexCRM.Store.Departments.get(t.departmentId);
+      const cat=NexCRM.Store.TicketCategories.get(t.categoryId);
+      const caseOwner=S.userName(t.assignedToId);
+      // Find closed date from changeLog
+      const changeLog=(t.changeLog||[]).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+      const closedEvent=[...changeLog].reverse().find(cl=>cl.field==='Status'&&cl.newRaw==='closed');
+      const closedDate=closedEvent?S.fmtDate(closedEvent.timestamp):'';
+
+      // Common ticket context fields
+      const context={
+        'Ticket Number':t.number,
+        'Case Owner':caseOwner,
+        'Created_Date':S.fmtDate(t.createdAt),
+        'Closed_Date':closedDate,
+        'Due_Date':t.dueDate||'',
+        'Department':dept?.name||'',
+        'Customer':customer?.name||'',
+        'Company':customer?.company||'',
+        'Category':cat?.name||'',
+        'Priority':S.PRIORITY_CFG[t.priority]?.l||t.priority,
+        'Status':S.STATUS_CFG[t.status]?.l||t.status,
+      };
+
+      // One row per change log event (exclude Comment Added for the export)
+      const events=changeLog.filter(cl=>cl.field!=='Comment Added');
+      if(!events.length){
+        // Ticket with no log — still include with a 'Created' event
+        rows.push({'Ticket Number':t.number,'Case Owner':caseOwner,'Field / Event':'Created','Old Value':'','New Value':'','Edited By':'','Edit Date':S.fmtDate(t.createdAt),...context});
+      } else {
+        for(const cl of events){
+          const editor=NexCRM.Store.Users.get(cl.editedById);
+          rows.push({
+            'Ticket Number':t.number,
+            'Case Owner':caseOwner,
+            'Field / Event':cl.field,
+            'Old Value':cl.oldValue||'',
+            'New Value':cl.newValue||'',
+            'Edited By':editor?.name||'',
+            'Edit Date':`${S.fmtDate(cl.timestamp)} ${new Date(cl.timestamp).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`,
+            ...context,
+          });
+        }
+      }
+    }
+
+    if(!rows.length){NexCRM.toast('No data to export','warning');return;}
+    S.exportCSV(rows, ticketId ? `nexcrm-event-log-${ticketId}.csv` : 'nexcrm-event-log-all.csv');
+    NexCRM.toast(`Event log exported — ${rows.length} events`,'success');
+  }
+
   // ── CSV Import ─────────────────────────────────────────────────────────────
   function openImportModal(){
-    const S=NexCRM.Utils,Ic=NexCRM.icon; _parsedCSV=[];
+    const S=NexCRM.Utils,Ic=NexCRM.icon;_parsedCSV=[];
     S.openModal('Import tickets from CSV',
       `<div style="margin-bottom:14px"><p style="font-size:13px;color:var(--s600);line-height:1.6;margin-bottom:10px">Upload a CSV file to import tickets in bulk.</p>
         <div style="background:var(--s50);border-radius:8px;padding:9px 12px;font-size:11px;font-family:monospace;color:var(--s700);overflow-x:auto">subject, description, status, priority, customer_email, assigned_email, department_name, category_name, due_date</div></div>
@@ -340,33 +417,40 @@ window.NexCRM = window.NexCRM || {};
   }
   function downloadTemplate(){const h=['subject','description','status','priority','customer_email','assigned_email','department_name','category_name','due_date'];const ex=['Login issue after reset','Cannot login after email reset','new','high','client@example.com','agent@nexcrm.dev','Support','Bug Report','2025-08-15'];const csv=[h.join(','),ex.map(v=>`"${v}"`).join(',')].join('\n');const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);a.download='nexcrm-import-template.csv';a.click();}
   function _parseCSV(text){const lines=text.trim().split('\n').filter(l=>l.trim());if(lines.length<2)return[];const hdrs=lines[0].split(',').map(h=>h.trim().toLowerCase().replace(/['"]/g,''));return lines.slice(1).map(line=>{const vals=[];let inQ=false,cur='';for(const ch of line){if(ch==='"'){inQ=!inQ;}else if(ch===','&&!inQ){vals.push(cur.trim());cur='';}else{cur+=ch;}}vals.push(cur.trim());const obj={};hdrs.forEach((h,i)=>{obj[h]=(vals[i]||'').replace(/^"|"$/g,'');});return obj;}).filter(r=>r.subject?.trim());}
-  function previewCSV(input){const file=input.files[0];if(!file)return;const S=NexCRM.Utils;const reader=new FileReader();reader.onload=e=>{const rows=_parseCSV(e.target.result);_parsedCSV=rows;const preview=document.getElementById('csv-preview');const btn=document.getElementById('csv-import-btn');if(!rows.length){preview.innerHTML=`<p style="color:var(--rose);font-size:13px">No valid rows found.</p>`;btn.disabled=true;return;}btn.disabled=false;preview.innerHTML=`<div style="font-size:12px;color:var(--s600);margin-bottom:8px">${rows.length} ticket${rows.length!==1?'s':''} ready to import</div><div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:var(--s50)">${['Subject','Priority','Category','Department'].map(h=>`<th style="padding:7px 10px;text-align:left;color:var(--s500);font-weight:600">${h}</th>`).join('')}</tr></thead><tbody>${rows.slice(0,6).map(r=>`<tr style="border-top:1px solid var(--s100)"><td style="padding:7px 10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.esc(r.subject)}</td><td style="padding:7px 10px">${S.priorityBadge(r.priority||'medium')}</td><td style="padding:7px 10px;font-size:11px;color:var(--s600)">${S.esc(r.category_name||'—')}</td><td style="padding:7px 10px;font-size:11px;color:var(--s600)">${S.esc(r.department_name||'—')}</td></tr>`).join('')}${rows.length>6?`<tr><td colspan="4" style="padding:7px 10px;text-align:center;color:var(--s400)">+${rows.length-6} more…</td></tr>`:''}</tbody></table></div>`;};reader.readAsText(file);}
-  function importCSV(){if(!_parsedCSV.length)return;const vSt=['new','assigned','in_progress','pending','resolved','closed'];const vPr=['low','medium','high','critical'];let n=0;for(const row of _parsedCSV){if(!row.subject?.trim())continue;let cId=null;if(row.customer_email){const c=NexCRM.Store.Customers.getAll().find(c=>c.email.toLowerCase()===row.customer_email.toLowerCase());if(c)cId=c.id;}let aId=null;if(row.assigned_email){const u=NexCRM.Store.Users.getByEmail(row.assigned_email);if(u)aId=u.id;}let depId=null;if(row.department_name){const d=NexCRM.Store.Departments.getAll().find(d=>d.name.toLowerCase()===row.department_name.toLowerCase());if(d)depId=d.id;}let catId=null;if(row.category_name){const c=NexCRM.Store.TicketCategories.getAll().find(c=>c.name.toLowerCase()===row.category_name.toLowerCase());if(c)catId=c.id;}const status=vSt.includes((row.status||'').toLowerCase())?row.status.toLowerCase():'new';const priority=vPr.includes((row.priority||'').toLowerCase())?row.priority.toLowerCase():'medium';NexCRM.Store.Tickets.create({subject:row.subject.trim(),description:row.description||'',status,priority,customerId:cId,assignedToId:aId,departmentId:depId,categoryId:catId,dueDate:row.due_date||null});n++;}  _parsedCSV=[];NexCRM.Utils.closeModal();NexCRM.toast(`${n} ticket${n!==1?'s':''} imported`,'success');renderList();}
-
-  // ── Export (all columns including dept and category) ───────────────────────
-  function exportData(){
-    const S=NexCRM.Utils;
-    const rows=NexCRM.Store.Tickets.getAll().map(t=>{
-      const cd=t.createdAt?new Date(t.createdAt):null;const ud=t.updatedAt?new Date(t.updatedAt):null;
-      return{'Ticket Number':t.number,'Subject':t.subject,'Case Description':t.description||'','Status':t.status,'Priority':t.priority,'Category':S.categoryName(t.categoryId),'Department':S.departmentName(t.departmentId),'Customer':S.customerName(t.customerId),'Company':NexCRM.Store.Customers.get(t.customerId)?.company||'','Assigned To':S.userName(t.assignedToId),'Due Date':t.dueDate||'','Created Date':cd?cd.toLocaleDateString():'','Created Time':cd?cd.toLocaleTimeString():'','Updated Date':ud?ud.toLocaleDateString():'','Updated Time':ud?ud.toLocaleTimeString():'','Old Value':'','New Value':'','Edit Date':'','Edit Time':''};
-    });
-    S.exportCSV(rows,'nexcrm-tickets.csv');
+  function previewCSV(input){const file=input.files[0];if(!file)return;const S=NexCRM.Utils;const reader=new FileReader();reader.onload=e=>{const rows=_parseCSV(e.target.result);_parsedCSV=rows;const preview=document.getElementById('csv-preview');const btn=document.getElementById('csv-import-btn');if(!rows.length){preview.innerHTML=`<p style="color:var(--rose);font-size:13px">No valid rows found.</p>`;btn.disabled=true;return;}btn.disabled=false;preview.innerHTML=`<div style="font-size:12px;color:var(--s600);margin-bottom:8px">${rows.length} ticket${rows.length!==1?'s':''} ready to import</div><div style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr style="background:var(--s50)">${['Subject','Priority','Category','Department'].map(h=>`<th style="padding:7px 10px;text-align:left;color:var(--s500);font-weight:600">${h}</th>`).join('')}</tr></thead><tbody>${rows.slice(0,6).map(r=>`<tr style="border-top:1px solid var(--s100)"><td style="padding:7px 10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.esc(r.subject)}</td><td style="padding:7px 10px">${S.priorityBadge(r.priority||'medium')}</td><td style="padding:7px 10px;font-size:11px">${S.esc(r.category_name||'—')}</td><td style="padding:7px 10px;font-size:11px">${S.esc(r.department_name||'—')}</td></tr>`).join('')}${rows.length>6?`<tr><td colspan="4" style="padding:7px 10px;text-align:center;color:var(--s400)">+${rows.length-6} more…</td></tr>`:''}</tbody></table></div>`;};reader.readAsText(file);}
+  function importCSV(){
+    if(!_parsedCSV.length)return;
+    const userId=NexCRM.Auth.getUser()?.id;
+    const vSt=['new','assigned','in_progress','pending','resolved','closed'],vPr=['low','medium','high','critical'];
+    let n=0;
+    for(const row of _parsedCSV){
+      if(!row.subject?.trim())continue;
+      let cId=null;if(row.customer_email){const c=NexCRM.Store.Customers.getAll().find(c=>c.email.toLowerCase()===row.customer_email.toLowerCase());if(c)cId=c.id;}
+      let aId=null;if(row.assigned_email){const u=NexCRM.Store.Users.getByEmail(row.assigned_email);if(u)aId=u.id;}
+      let depId=null;if(row.department_name){const d=NexCRM.Store.Departments.getAll().find(d=>d.name.toLowerCase()===row.department_name.toLowerCase());if(d)depId=d.id;}
+      let catId=null;if(row.category_name){const c=NexCRM.Store.TicketCategories.getAll().find(c=>c.name.toLowerCase()===row.category_name.toLowerCase());if(c)catId=c.id;}
+      const status=vSt.includes((row.status||'').toLowerCase())?row.status.toLowerCase():'new';
+      const priority=vPr.includes((row.priority||'').toLowerCase())?row.priority.toLowerCase():'medium';
+      NexCRM.Store.Tickets.create({subject:row.subject.trim(),description:row.description||'',status,priority,customerId:cId,assignedToId:aId,departmentId:depId,categoryId:catId,dueDate:row.due_date||null,_editedBy:userId});
+      n++;
+    }
+    _parsedCSV=[];NexCRM.Utils.closeModal();NexCRM.toast(`${n} ticket${n!==1?'s':''} imported`,'success');renderList();
   }
 
   // ── Filter setters ─────────────────────────────────────────────────────────
-  function _setQ(v)    { _q=v;        renderList(); }
-  function _setSt(v)   { _status=v;   renderList(); }
-  function _setPr(v)   { _priority=v; renderList(); }
-  function _setCust(v) { _customer=v; renderList(); }
-  function _setDept(v) { _dept=v;     renderList(); }
-  function _setCat(v)  { _cat=v;      renderList(); }
-  function _clearFilters(){ _q='';_status='all';_priority='all';_customer='all';_dept='all';_cat='all';renderList(); }
+  function _setQ(v)    {_q=v;       renderList();}
+  function _setSt(v)   {_status=v;  renderList();}
+  function _setPr(v)   {_priority=v;renderList();}
+  function _setCust(v) {_customer=v;renderList();}
+  function _setDept(v) {_dept=v;    renderList();}
+  function _setCat(v)  {_cat=v;     renderList();}
+  function _clearFilters(){_q='';_status='all';_priority='all';_customer='all';_dept='all';_cat='all';renderList();}
 
-  window.NexCRM.Tickets = {
-    render, renderList, renderDetail, openCreateModal, openEditModal,
-    create, update, patchField, confirmDelete, addComment,
-    openImportModal, downloadTemplate, previewCSV, importCSV, exportData,
-    openColumnManager, _toggleCol, _resetCols,
-    _setSort, _setQ, _setSt, _setPr, _setCust, _setDept, _setCat, _clearFilters,
+  window.NexCRM.Tickets={
+    render,renderList,renderDetail,openCreateModal,openEditModal,
+    create,update,patchField,confirmDelete,addComment,exportEventLog,
+    openImportModal,downloadTemplate,previewCSV,importCSV,
+    openColumnManager,_toggleCol,_resetCols,
+    _setSort,_setQ,_setSt,_setPr,_setCust,_setDept,_setCat,_clearFilters,
   };
 })();
