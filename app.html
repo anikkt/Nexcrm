@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexCRM</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="app-sidebar" id="sidebar"></aside>
+    <div class="app-main">
+      <header class="app-topbar" id="topbar"></header>
+      <main class="app-content" id="page-content">
+        <div class="page-loading">Loading…</div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-backdrop hidden" id="modal-backdrop" onclick="NexCRM.Utils.handleBackdropClick(event)">
+    <div class="modal-box modal-md" id="modal-box">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title"></h3>
+        <button class="modal-close" onclick="NexCRM.Utils.closeModal()">×</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast-container"></div>
+
+  <!-- Firebase SDK (must load before store.js) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
+  <!-- Scripts in dependency order -->
+  <script src="js/store.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/layout.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/tickets.js"></script>
+  <script src="js/pages/customers.js"></script>
+  <script src="js/pages/departments.js"></script>
+  <script src="js/pages/categories.js"></script>
+  <script src="js/pages/reports.js"></script>
+  <script src="js/pages/sla.js"></script>
+  <script src="js/pages/users.js"></script>
+  <script src="js/pages/profile.js"></script>
+  <script src="js/pages/notifications.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
