@@ -47,6 +47,8 @@
       case 'customers':    NexCRM.Customers.render(rest[0] || null); break;
       case 'departments':  NexCRM.Departments.render(); break;
       case 'categories':   NexCRM.Categories.render(); break;
+      case 'reports':      NexCRM.Reports.render(); break;
+      case 'sla':          NexCRM.SLA.render(); break;
       case 'users':
         if (NexCRM.Auth.isAdmin() || NexCRM.Auth.isManager()) NexCRM.Users.render();
         else { NexCRM.toast('Access denied', 'error'); location.hash = '#dashboard'; }
