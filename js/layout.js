@@ -19,15 +19,15 @@ window.NexCRM = window.NexCRM || {};
       { id:'customers',    icon:'customers', label:'Customers' },
       { id:'departments',  icon:'layers',    label:'Departments' },
       { id:'categories',   icon:'barchart',  label:'Ticket Categories' },
+      { id:'reports',      icon:'trending',  label:'Reports & Analytics' },
+      { id:'sla',          icon:'check_c',   label:'SLA Management' },
       ...(NexCRM.Auth.isAdmin()||NexCRM.Auth.isManager()?[{id:'users',icon:'users',label:'Users'}]:[]),
       { id:'notifications',icon:'bell',      label:'Notifications', badge:unread },
       { id:'profile',      icon:'settings',  label:'Profile & Settings' },
     ];
     const ph = [
-      { icon:'barchart', label:'Reports & Analytics' },
-      { icon:'alert_c',  label:'SLA Management' },
-      { icon:'file',     label:'Email Integration' },
-      { icon:'zap',      label:'Automations' },
+      { icon:'file', label:'Email Integration' },
+      { icon:'zap',  label:'Automations' },
     ];
 
     // Render current user avatar (handles preset/image avatars)
