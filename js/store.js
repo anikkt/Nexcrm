@@ -191,6 +191,12 @@ window.NexCRM = window.NexCRM || {};
         orgName:'NexCRM Organisation', industry:'Technology', timezone:'IST (UTC+5:30)', language:'English (US)',
         departments:['Support','Finance','Engineering','Operations','Account Management'],
         categories:['Bug Report','Feature Request','Billing','Access & Auth','Performance','General Enquiry'],
+        slaRules: {
+          critical: { firstResponse:1,  resolution:4  },
+          high:     { firstResponse:4,  resolution:8  },
+          medium:   { firstResponse:8,  resolution:24 },
+          low:      { firstResponse:24, resolution:72 },
+        },
       },
       departments, categories,
       tSeq:5, cSeq:4, depSeq:5, catSeq:6,
@@ -278,14 +284,15 @@ window.NexCRM = window.NexCRM || {};
     get(id)        {return C.tickets.find(t=>t.id===id||t.number===id)||null;},
 
     create(data) {
+      const { _editedBy, ...ticketData } = data;   // strip internal prop before Firestore save
       C.tSeq++;
-      const userId = data._editedBy || _sessionUser();
+      const userId = _editedBy || _sessionUser();
       const ts = now();
       const t = {
-        ...data, _editedBy:undefined,
+        ...ticketData,
         id:uid(), number:`TK-${String(C.tSeq).padStart(3,'0')}`,
         createdAt:ts, updatedAt:ts, comments:[],
-        changeLog: _initialCL({...data, createdAt:ts}, userId),
+        changeLog: _initialCL({...ticketData, createdAt:ts}, userId),
       };
       C.tickets.push(t);
       _save('tickets',{items:C.tickets,seq:C.tSeq});
@@ -293,26 +300,19 @@ window.NexCRM = window.NexCRM || {};
     },
 
     update(id, data, editedBy) {
+      const { _editedBy: _ign, ...cleanData } = data;   // strip internal prop
       const i=C.tickets.findIndex(t=>t.id===id||t.number===id);
       if(i<0) return null;
       const old=C.tickets[i];
-      const editorId=editedBy||data._editedBy||_sessionUser();
+      const editorId=editedBy||_ign||_sessionUser();
       const ts=now();
-
-      // Diff and build change entries
       const changes=[];
       for(const field of CL_TRACKED) {
-        if(data[field]!==undefined && String(data[field]||'')!==String(old[field]||'')) {
-          changes.push({
-            id:uid(), timestamp:ts, editedById:editorId,
-            field:FL[field]||field,
-            oldValue:_label(field,old[field]), newValue:_label(field,data[field]),
-            oldRaw:old[field]||null, newRaw:data[field]||null,
-          });
+        if(cleanData[field]!==undefined && String(cleanData[field]||'')!==String(old[field]||'')) {
+          changes.push({id:uid(),timestamp:ts,editedById:editorId,field:FL[field]||field,oldValue:_label(field,old[field]),newValue:_label(field,cleanData[field]),oldRaw:old[field]||null,newRaw:cleanData[field]||null});
         }
       }
-
-      C.tickets[i]={...old,...data,_editedBy:undefined,updatedAt:ts,changeLog:[...(old.changeLog||[]),...changes]};
+      C.tickets[i]={...old,...cleanData,updatedAt:ts,changeLog:[...(old.changeLog||[]),...changes]};
       _save('tickets',{items:C.tickets,seq:C.tSeq});
       return C.tickets[i];
     },
