@@ -76,7 +76,18 @@
     loginBtn.textContent = 'Connecting…';
 
     NexCRM._ready.then(() => {
-      if (NexCRM.Auth.getSession()) { window.location.href = 'app.html'; return; }
+      const session = NexCRM.Auth.getSession();
+      if (session) {
+        const user = NexCRM.Store.Users.get(session.userId);
+        if (user) {
+          window.location.href = 'app.html';
+          return;
+        }
+        // Session points to a user that doesn't exist in this dataset
+        // (stale session, or Firebase data was reset/reseeded) — clear it
+        // so we don't bounce back and forth with app.html forever.
+        localStorage.removeItem('ncm_session');
+      }
       loginBtn.disabled = false;
       loginBtn.textContent = 'Sign in';
     });
