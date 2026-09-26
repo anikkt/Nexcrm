@@ -20,7 +20,7 @@ button { cursor: pointer; border: none; background: none; }
 
 /* === LAYOUT === */
 .app-layout { display: flex; height: 100vh; overflow: hidden; }
-.app-sidebar { width: var(--sidebar-w); background: var(--s900); display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.2s ease; overflow: hidden; }
+.app-sidebar { width: var(--sidebar-w); background: #0f172a; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.2s ease; overflow: hidden; }
 .app-sidebar.collapsed { width: 60px; }
 .app-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .app-topbar { height: var(--topbar-h); background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; flex-shrink: 0; }
