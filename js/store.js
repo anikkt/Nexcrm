@@ -308,6 +308,19 @@ window.NexCRM = window.NexCRM || {};
       return t;
     },
 
+    // Used only by "Generate tickets from imported event log". Preserves the
+    // original ticket number from the import (instead of auto-numbering) and
+    // accepts a pre-built changeLog. Skips silently if that number already exists.
+    createFromImport(data) {
+      if (C.tickets.find(t => t.number === data.number)) return null;
+      const t = { ...data, id: uid(), comments: data.comments || [], changeLog: data.changeLog || [] };
+      C.tickets.push(t);
+      const m = /^TK-(\d+)$/.exec(data.number || '');
+      if (m) { const n = parseInt(m[1], 10); if (n > C.tSeq) C.tSeq = n; }
+      _save('tickets', { items: C.tickets, seq: C.tSeq });
+      return t;
+    },
+
     update(id, data, editedBy) {
       const { _editedBy: _ign, ...cleanData } = data;   // strip internal prop
       const i=C.tickets.findIndex(t=>t.id===id||t.number===id);
@@ -393,6 +406,58 @@ window.NexCRM = window.NexCRM || {};
     clear()    { C.importedEvents = []; _save('imported_events', { items: [] }); },
   };
 
+  // ── Local backup recovery ──────────────────────────────────────────────────
+  // If this browser was previously running on localStorage (e.g. before a
+  // Firebase config was set up) and the app has since switched to Firestore,
+  // any data created back then still sits untouched under the old keys. These
+  // utilities let an admin scan for it and merge it into whichever backend is
+  // currently active, without needing to touch the live in-memory cache first.
+  function _scanLocalBackup() {
+    return {
+      users:         load(K.U,   []).length,
+      tickets:       load(K.T,   []).length,
+      customers:     load(K.C,   []).length,
+      departments:   load(K.DEP, []).length,
+      categories:    load(K.CAT, []).length,
+      notifications: load(K.N,   []).length,
+      hasSettings:   !!load(K.S, null),
+    };
+  }
+
+  function _mergeLocalBackup() {
+    const backup = {
+      users:       load(K.U,   []),
+      tickets:     load(K.T,   []),
+      customers:   load(K.C,   []),
+      departments: load(K.DEP, []),
+      categories:  load(K.CAT, []),
+      notifications: load(K.N, []),
+    };
+    const added = { users:0, tickets:0, customers:0, departments:0, categories:0, notifications:0 };
+
+    function mergeArr(current, incoming, key='id') {
+      const existingIds = new Set(current.map(x => x[key]));
+      const toAdd = incoming.filter(x => !existingIds.has(x[key]));
+      return { merged: [...current, ...toAdd], addedCount: toAdd.length };
+    }
+
+    const u = mergeArr(C.users, backup.users);       C.users = u.merged;             added.users = u.addedCount;
+    const t = mergeArr(C.tickets, backup.tickets, 'number'); C.tickets = t.merged;    added.tickets = t.addedCount;
+    const c = mergeArr(C.customers, backup.customers); C.customers = c.merged;        added.customers = c.addedCount;
+    const d = mergeArr(C.departments, backup.departments); C.departments = d.merged;  added.departments = d.addedCount;
+    const g = mergeArr(C.categories, backup.categories); C.categories = g.merged;     added.categories = g.addedCount;
+    const n = mergeArr(C.notifications, backup.notifications); C.notifications = n.merged; added.notifications = n.addedCount;
+
+    if (added.users)         _save('users',         { items: C.users });
+    if (added.tickets)       _save('tickets',        { items: C.tickets, seq: C.tSeq });
+    if (added.customers)     _save('customers',      { items: C.customers, seq: C.cSeq });
+    if (added.departments)   _save('departments',    { items: C.departments, seq: C.depSeq });
+    if (added.categories)    _save('ticket_cats',     { items: C.categories, seq: C.catSeq });
+    if (added.notifications) _save('notifications',  { items: C.notifications });
+
+    return added;
+  }
+
   // ── Choose backend ─────────────────────────────────────────────────────────
   const FIREBASE_OK = !FIREBASE_CONFIG.apiKey.startsWith('__') && !FIREBASE_CONFIG.apiKey.startsWith('PASTE_');
   if (!FIREBASE_OK) {
@@ -405,7 +470,7 @@ window.NexCRM = window.NexCRM || {};
       .catch(e=>{if(!resolved){resolved=true;clearTimeout(fallback);console.warn('[NexCRM] Firebase error → localStorage',e.message);_initLS();}});
   }
 
-  window.NexCRM.Store={Users,Tickets,Customers,Notifications,Settings,Departments,TicketCategories,ImportedEvents};
+  window.NexCRM.Store={Users,Tickets,Customers,Notifications,Settings,Departments,TicketCategories,ImportedEvents,_scanLocalBackup,_mergeLocalBackup};
   window.NexCRM._ready=_ready;
   window.NexCRM._uid=uid;
   window.NexCRM._now=now;
