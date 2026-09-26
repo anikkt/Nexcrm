@@ -241,6 +241,7 @@ window.NexCRM = window.NexCRM || {};
             <input type="date" class="filter-select" value="${_hTo}" onchange="NexCRM.Reports._setHTo(this.value)" title="To date">
             <div style="flex:1"></div>
             ${isManager?`<button class="btn btn-primary" onclick="NexCRM.Reports.openImportModal()">${Ic('upload',14)} Import more</button>`:''}
+            ${isManager?`<button class="btn btn-ghost" onclick="NexCRM.Reports.openGenerateModal()">${Ic('tickets',14)} Generate tickets</button>`:''}
             <button class="btn btn-ghost" onclick="NexCRM.Reports.exportHistory()">${Ic('download',14)} Export filtered</button>
             ${isManager?`<button class="btn btn-ghost" style="color:var(--rose)" onclick="NexCRM.Reports.confirmClearHistory()">${Ic('trash',14)}</button>`:''}
           </div>
@@ -398,6 +399,181 @@ window.NexCRM = window.NexCRM || {};
     NexCRM.toast(`${out.length} events exported`, 'success');
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // GENERATE TICKETS FROM IMPORTED EVENT LOG
+  // ══════════════════════════════════════════════════════════════════════════
+
+  function _tryParseDate(str) {
+    if (!str) return null;
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function _reverseLabel(cfgMap, label) {
+    if (!label) return null;
+    const target = label.trim().toLowerCase();
+    const hit = Object.entries(cfgMap).find(([,v]) => v.l.toLowerCase() === target);
+    return hit ? hit[0] : null;
+  }
+
+  // Groups imported rows by ticket number and works out, for each group,
+  // what a reconstructed ticket + full change log would look like — without
+  // writing anything yet. Used both for the preview and the real run.
+  function _planGeneration() {
+    const S = NexCRM.Utils;
+    const rows = NexCRM.Store.ImportedEvents.getAll();
+    const byTicket = {};
+    rows.forEach(r => { (byTicket[r.ticketNumber] = byTicket[r.ticketNumber] || []).push(r); });
+
+    const plan = {
+      toCreate: [],       // [{number, ...resolved fields, changeLog}]
+      skipExisting: [],   // ticket numbers already present as real tickets
+      newCustomers: [],   // [{name, company}] to be auto-created
+      unmatchedDepts: new Set(),
+      unmatchedCats: new Set(),
+      unmatchedAgents: new Set(),
+    };
+
+    for (const [number, group] of Object.entries(byTicket)) {
+      if (NexCRM.Store.Tickets.get(number)) { plan.skipExisting.push(number); continue; }
+
+      const sorted = [...group].sort((a,b) => (_tryParseDate(a.editDate)||0) - (_tryParseDate(b.editDate)||0));
+      const latest = sorted[sorted.length - 1];
+      const earliest = sorted[0];
+
+      // Resolve department / category by name (case-insensitive)
+      let departmentId = null;
+      if (latest.department) {
+        const d = NexCRM.Store.Departments.getAll().find(d => d.name.toLowerCase() === latest.department.trim().toLowerCase());
+        if (d) departmentId = d.id; else plan.unmatchedDepts.add(latest.department.trim());
+      }
+      let categoryId = null;
+      if (latest.category) {
+        const c = NexCRM.Store.TicketCategories.getAll().find(c => c.name.toLowerCase() === latest.category.trim().toLowerCase());
+        if (c) categoryId = c.id; else plan.unmatchedCats.add(latest.category.trim());
+      }
+
+      // Resolve or plan-create customer
+      let customerId = null;
+      if (latest.customer) {
+        const existing = NexCRM.Store.Customers.getAll().find(c => c.name.toLowerCase() === latest.customer.trim().toLowerCase());
+        if (existing) customerId = existing.id;
+        else if (!plan.newCustomers.find(c => c.name.toLowerCase() === latest.customer.trim().toLowerCase()))
+          plan.newCustomers.push({ name: latest.customer.trim(), company: latest.company||'' });
+      }
+
+      // Resolve assigned agent by name (Case Owner)
+      let assignedToId = null;
+      if (latest.caseOwner) {
+        const u = NexCRM.Store.Users.getAll().find(u => u.name.toLowerCase() === latest.caseOwner.trim().toLowerCase());
+        if (u) assignedToId = u.id; else plan.unmatchedAgents.add(latest.caseOwner.trim());
+      }
+
+      const status   = _reverseLabel(S.STATUS_CFG, latest.status) || 'new';
+      const priority = _reverseLabel(S.PRIORITY_CFG, latest.priority) || 'medium';
+
+      const createdAt = _tryParseDate(latest.createdDate) || _tryParseDate(earliest.editDate) || new Date();
+      const closedAt  = _tryParseDate(latest.closedDate);
+      const updatedAt = closedAt || _tryParseDate(latest.editDate) || createdAt;
+      const dueDate    = _tryParseDate(latest.dueDate);
+
+      const catName  = latest.category ? latest.category.trim() : '';
+      const custName = latest.customer ? latest.customer.trim() : '';
+      const subject  = catName && custName ? `${catName} — ${custName}`
+                      : custName ? `Case for ${custName}`
+                      : `Imported case ${number}`;
+      const description = `Reconstructed from an imported event log on ${new Date().toLocaleDateString()}. Original ticket number: ${number}. ${group.length} historical event${group.length!==1?'s':''} imported.`;
+
+      const changeLog = sorted.map(r => {
+        const editor = NexCRM.Store.Users.getAll().find(u => u.name.toLowerCase() === (r.editedBy||'').trim().toLowerCase());
+        return {
+          id: NexCRM._uid(),
+          timestamp: (_tryParseDate(r.editDate) || createdAt).toISOString(),
+          editedById: editor ? editor.id : null,
+          editedByName: !editor && r.editedBy ? r.editedBy.trim() : undefined,
+          field: r.field || 'Update',
+          oldValue: r.oldValue || '',
+          newValue: r.newValue || '',
+          oldRaw: null, newRaw: null,
+        };
+      });
+
+      plan.toCreate.push({
+        number, subject, description, status, priority,
+        customerId, departmentId, categoryId, assignedToId,
+        dueDate: dueDate ? dueDate.toISOString().slice(0,10) : null,
+        createdAt: createdAt.toISOString(),
+        updatedAt: updatedAt.toISOString(),
+        changeLog,
+        _pendingCustomerName: customerId ? null : custName,  // resolved at execute time if newly created
+      });
+    }
+
+    return plan;
+  }
+
+  function openGenerateModal() {
+    const S = NexCRM.Utils, Ic = NexCRM.icon;
+    const plan = _planGeneration();
+
+    if (!plan.toCreate.length && !plan.skipExisting.length) {
+      S.openModal('Generate tickets', `<p style="font-size:13px;color:var(--text-2)">No imported event log found. Import a CSV first from the Case History tab.</p>`,
+        `<button class="btn btn-primary" onclick="NexCRM.Utils.closeModal()">Close</button>`);
+      return;
+    }
+
+    const warn = (label, set) => set.size ? `<div style="margin-top:8px"><span style="font-size:12px;font-weight:600;color:var(--amber)">${label}:</span> <span style="font-size:12px;color:var(--text-2)">${[...set].map(S.esc).join(', ')}</span></div>` : '';
+
+    const body = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="stat-chip" style="background:var(--s50);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--primary)">${plan.toCreate.length}</div>
+          <div style="font-size:11px;color:var(--text-3)">New tickets to create</div>
+        </div>
+        <div class="stat-chip" style="background:var(--s50);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--text-3)">${plan.skipExisting.length}</div>
+          <div style="font-size:11px;color:var(--text-3)">Already exist — will skip</div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--s600);line-height:1.6;margin-bottom:8px">
+        Each ticket is rebuilt from its full event history: subject/description are inferred (log has no original subject field), current status/priority/category/department come from the most recent event, and the complete Change History table is reconstructed from every row.
+      </p>
+      ${plan.newCustomers.length ? `<div style="margin-top:10px"><span style="font-size:12px;font-weight:600;color:var(--primary)">${plan.newCustomers.length} new customer${plan.newCustomers.length!==1?'s':''} will be auto-created:</span> <span style="font-size:12px;color:var(--text-2)">${plan.newCustomers.map(c=>S.esc(c.name)).join(', ')}</span></div>` : ''}
+      ${warn('Departments not found (left unassigned)', plan.unmatchedDepts)}
+      ${warn('Categories not found (left unassigned)', plan.unmatchedCats)}
+      ${warn('Agents not found (left unassigned)', plan.unmatchedAgents)}
+    `;
+
+    S.openModal('Generate tickets from event log', body,
+      `<button class="btn btn-ghost" onclick="NexCRM.Utils.closeModal()">Cancel</button>
+       <button class="btn btn-primary" onclick="NexCRM.Reports.runGeneration()" ${!plan.toCreate.length?'disabled':''}>${Ic('check_c',13)} Create ${plan.toCreate.length} ticket${plan.toCreate.length!==1?'s':''}</button>`, 'lg');
+  }
+
+  function runGeneration() {
+    const plan = _planGeneration();
+    let createdCustomers = 0, createdTickets = 0;
+
+    // Create any missing customers first, so tickets can reference them
+    const nameToId = {};
+    for (const c of plan.newCustomers) {
+      const created = NexCRM.Store.Customers.create({ name:c.name, company:c.company, email:'', phone:'', industry:'', status:'active', notes:'Auto-created while generating tickets from an imported event log.' });
+      nameToId[c.name.toLowerCase()] = created.id;
+      createdCustomers++;
+    }
+
+    for (const t of plan.toCreate) {
+      let customerId = t.customerId;
+      if (!customerId && t._pendingCustomerName) customerId = nameToId[t._pendingCustomerName.toLowerCase()] || null;
+      const { _pendingCustomerName, ...ticketData } = t;
+      const result = NexCRM.Store.Tickets.createFromImport({ ...ticketData, customerId, comments: [] });
+      if (result) createdTickets++;
+    }
+
+    NexCRM.Utils.closeModal();
+    NexCRM.toast(`${createdTickets} ticket${createdTickets!==1?'s':''} created${createdCustomers?`, ${createdCustomers} new customer${createdCustomers!==1?'s':''}`:''}`, 'success');
+    location.hash = '#tickets';
+  }
+
   function exportSummary() {
     const S=NexCRM.Utils;
     const tickets=NexCRM.Store.Tickets.getAll();
@@ -431,5 +607,6 @@ window.NexCRM = window.NexCRM || {};
     _setTab, renderAnalytics, renderHistory,
     _setHQ, _setHTicket, _setHField, _setHFrom, _setHTo, _clearHistoryFilters,
     openImportModal, previewImport, importHistory, confirmClearHistory, exportHistory,
+    openGenerateModal, runGeneration,
   };
 })();
