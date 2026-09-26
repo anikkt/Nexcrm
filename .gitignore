@@ -1,0 +1,15 @@
+# Never commit real Firebase config or local overrides
+firebase-config.local.js
+.env
+.env.local
+*.env
+
+# Node (if you ever add a build step)
+node_modules/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
