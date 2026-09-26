@@ -2,13 +2,16 @@ window.NexCRM = window.NexCRM || {};
 
 (function () {
   // ═══════════════════════════════════════════════════════════════════════════
+  // Firebase config — values injected by GitHub Actions at deploy time.
+  // Locally the app falls back to localStorage (fully functional without Firebase).
+  // ═══════════════════════════════════════════════════════════════════════════
   const FIREBASE_CONFIG = {
-    apiKey:            "AIzaSyCP72XrSAWIyBl6x-FEVovG9B6QplGg9Ls",
-    authDomain:        "nexcrm-36647.firebaseapp.com",
-    projectId:         "nexcrm-36647",
-    storageBucket:     "nexcrm-36647.firebasestorage.app",
-    messagingSenderId: "1021268709360",
-    appId:             "1:1021268709360:web:9e53a3efc1a51c6d37d735"
+    apiKey:            "__FIREBASE_API_KEY__",
+    authDomain:        "__FIREBASE_AUTH_DOMAIN__",
+    projectId:         "__FIREBASE_PROJECT_ID__",
+    storageBucket:     "__FIREBASE_STORAGE_BUCKET__",
+    messagingSenderId: "__FIREBASE_MESSAGING_SENDER_ID__",
+    appId:             "__FIREBASE_APP_ID__"
   };
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -19,7 +22,7 @@ window.NexCRM = window.NexCRM || {};
 
   const C = {
     users:[], tickets:[], customers:[], notifications:[], settings:{},
-    departments:[], categories:[],
+    departments:[], categories:[], importedEvents:[],
     tSeq:0, cSeq:0, depSeq:0, catSeq:0,
   };
 
@@ -33,6 +36,7 @@ window.NexCRM = window.NexCRM || {};
     TS:'ncm_tseq', CS:'ncm_cseq',
     DEP:'ncm_departments', DS:'ncm_dseq',
     CAT:'ncm_categories',  CATS:'ncm_catseq',
+    IE:'ncm_imported_events',
   };
 
   function _lsSave(doc, data) {
@@ -44,6 +48,7 @@ window.NexCRM = window.NexCRM || {};
       case 'settings':      lset(K.S,   data); break;
       case 'departments':   lset(K.DEP, data.items); lset(K.DS,   data.seq); break;
       case 'ticket_cats':   lset(K.CAT, data.items); lset(K.CATS, data.seq); break;
+      case 'imported_events': lset(K.IE, data.items); break;
     }
   }
 
@@ -220,14 +225,15 @@ window.NexCRM = window.NexCRM || {};
       C.settings      = load(K.S,   {});
       C.departments   = load(K.DEP, []); C.depSeq = load(K.DS,   0);
       C.categories    = load(K.CAT, []); C.catSeq = load(K.CATS, 0);
+      C.importedEvents = load(K.IE, []);
       if (!C.departments.length) { const s=_getSeed(); C.departments=s.departments; C.depSeq=s.depSeq; }
       if (!C.categories.length)  { const s=_getSeed(); C.categories=s.categories;  C.catSeq=s.catSeq; }
       // Migrate old tickets: add empty changeLog if missing
       C.tickets = C.tickets.map(t => t.changeLog ? t : { ...t, changeLog:[] });
     }
     _save = _lsSave;
-    ['users','tickets','customers','notifications','settings','departments','ticket_cats'].forEach(doc => {
-      const d={users:{items:C.users},tickets:{items:C.tickets,seq:C.tSeq},customers:{items:C.customers,seq:C.cSeq},notifications:{items:C.notifications},settings:C.settings,departments:{items:C.departments,seq:C.depSeq},ticket_cats:{items:C.categories,seq:C.catSeq}}[doc];
+    ['users','tickets','customers','notifications','settings','departments','ticket_cats','imported_events'].forEach(doc => {
+      const d={users:{items:C.users},tickets:{items:C.tickets,seq:C.tSeq},customers:{items:C.customers,seq:C.cSeq},notifications:{items:C.notifications},settings:C.settings,departments:{items:C.departments,seq:C.depSeq},ticket_cats:{items:C.categories,seq:C.catSeq},imported_events:{items:C.importedEvents}}[doc];
       if(d) _lsSave(doc,d);
     });
     _resolve();
@@ -243,15 +249,17 @@ window.NexCRM = window.NexCRM || {};
     const check = await COL.doc('users').get();
     if (!check.exists) {
       const s=_getSeed();
-      Object.assign(C,{users:s.users,tickets:s.tickets,customers:s.customers,notifications:s.notifications,settings:s.settings,departments:s.departments,categories:s.categories,tSeq:s.tSeq,cSeq:s.cSeq,depSeq:s.depSeq,catSeq:s.catSeq});
-      await Promise.all([COL.doc('users').set({items:C.users}),COL.doc('tickets').set({items:C.tickets,seq:C.tSeq}),COL.doc('customers').set({items:C.customers,seq:C.cSeq}),COL.doc('notifications').set({items:C.notifications}),COL.doc('settings').set(C.settings),COL.doc('departments').set({items:C.departments,seq:C.depSeq}),COL.doc('ticket_cats').set({items:C.categories,seq:C.catSeq})]);
+      Object.assign(C,{users:s.users,tickets:s.tickets,customers:s.customers,notifications:s.notifications,settings:s.settings,departments:s.departments,categories:s.categories,tSeq:s.tSeq,cSeq:s.cSeq,depSeq:s.depSeq,catSeq:s.catSeq,importedEvents:[]});
+      await Promise.all([COL.doc('users').set({items:C.users}),COL.doc('tickets').set({items:C.tickets,seq:C.tSeq}),COL.doc('customers').set({items:C.customers,seq:C.cSeq}),COL.doc('notifications').set({items:C.notifications}),COL.doc('settings').set(C.settings),COL.doc('departments').set({items:C.departments,seq:C.depSeq}),COL.doc('ticket_cats').set({items:C.categories,seq:C.catSeq}),COL.doc('imported_events').set({items:[]})]);
     } else {
-      const [u,t,cu,n,se,dep,cat]=await Promise.all(['users','tickets','customers','notifications','settings','departments','ticket_cats'].map(d=>COL.doc(d).get()));
+      const [u,t,cu,n,se,dep,cat,ie]=await Promise.all(['users','tickets','customers','notifications','settings','departments','ticket_cats','imported_events'].map(d=>COL.doc(d).get()));
       C.users=u.data()?.items||[]; C.tickets=t.data()?.items||[]; C.tSeq=t.data()?.seq||0;
       C.customers=cu.data()?.items||[]; C.cSeq=cu.data()?.seq||0;
       C.notifications=n.data()?.items||[]; C.settings=se.data()||{};
       C.departments=dep.data()?.items||[]; C.depSeq=dep.data()?.seq||0;
       C.categories=cat.data()?.items||[]; C.catSeq=cat.data()?.seq||0;
+      C.importedEvents=ie.data()?.items||[];
+      if (!ie.exists) await COL.doc('imported_events').set({items:[]});
       if(!C.departments.length){const s=_getSeed();C.departments=s.departments;C.depSeq=s.depSeq;await COL.doc('departments').set({items:C.departments,seq:C.depSeq});}
       if(!C.categories.length) {const s=_getSeed();C.categories=s.categories; C.catSeq=s.catSeq; await COL.doc('ticket_cats').set({items:C.categories,seq:C.catSeq});}
       // Migrate old tickets without changeLog
@@ -267,6 +275,7 @@ window.NexCRM = window.NexCRM || {};
     COL.doc('notifications').onSnapshot(d=>{if(!d.exists)return;C.notifications=d.data().items||[];NexCRM._onDataUpdate?.();});
     COL.doc('departments').onSnapshot(d=>{if(!d.exists)return;C.departments=d.data().items||[];C.depSeq=d.data().seq||0;NexCRM._onDataUpdate?.();});
     COL.doc('ticket_cats').onSnapshot(d=>{if(!d.exists)return;C.categories=d.data().items||[];C.catSeq=d.data().seq||0;NexCRM._onDataUpdate?.();});
+    COL.doc('imported_events').onSnapshot(d=>{if(!d.exists)return;C.importedEvents=d.data().items||[];NexCRM._onDataUpdate?.();});
   }
 
   // ── CRUD modules ───────────────────────────────────────────────────────────
@@ -375,8 +384,17 @@ window.NexCRM = window.NexCRM || {};
     delete(id)     {C.categories=C.categories.filter(c=>c.id!==id);_save('ticket_cats',{items:C.categories,seq:C.catSeq});},
   };
 
+  // Imported event log — historical case-history rows brought in from an
+  // external CRM export (does not touch live Tickets records at all).
+  const ImportedEvents = {
+    getAll()   { return [...C.importedEvents]; },
+    replace(rows) { C.importedEvents = rows; _save('imported_events', { items: rows }); },
+    append(rows)  { C.importedEvents = [...C.importedEvents, ...rows]; _save('imported_events', { items: C.importedEvents }); },
+    clear()    { C.importedEvents = []; _save('imported_events', { items: [] }); },
+  };
+
   // ── Choose backend ─────────────────────────────────────────────────────────
-  const FIREBASE_OK = !FIREBASE_CONFIG.apiKey.startsWith('PASTE_');
+  const FIREBASE_OK = !FIREBASE_CONFIG.apiKey.startsWith('__') && !FIREBASE_CONFIG.apiKey.startsWith('PASTE_');
   if (!FIREBASE_OK) {
     _initLS();
   } else {
@@ -387,7 +405,7 @@ window.NexCRM = window.NexCRM || {};
       .catch(e=>{if(!resolved){resolved=true;clearTimeout(fallback);console.warn('[NexCRM] Firebase error → localStorage',e.message);_initLS();}});
   }
 
-  window.NexCRM.Store={Users,Tickets,Customers,Notifications,Settings,Departments,TicketCategories};
+  window.NexCRM.Store={Users,Tickets,Customers,Notifications,Settings,Departments,TicketCategories,ImportedEvents};
   window.NexCRM._ready=_ready;
   window.NexCRM._uid=uid;
   window.NexCRM._now=now;
