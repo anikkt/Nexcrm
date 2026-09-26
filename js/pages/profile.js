@@ -106,6 +106,14 @@ window.NexCRM = window.NexCRM || {};
         </div>
 
         ${isAdmin?`
+        <div class="card" style="border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.04)">
+          <div class="card-title" style="margin-bottom:6px">${Ic('alert_c',15)} Data recovery <span style="font-size:11px;color:var(--primary);margin-left:8px;font-weight:400">Admin only</span></div>
+          <p class="text-muted" style="font-size:13px;margin-bottom:14px;max-width:640px">
+            If this browser previously ran on local storage (before a database was connected) and you're missing tickets, users, customers, or departments created back then, scan for that old data below. It never deletes anything — it only checks whether older records still exist in this browser and offers to merge them back in.
+          </p>
+          <button class="btn btn-ghost btn-sm" onclick="NexCRM.Profile.scanLocalBackup()">${Ic('search',13)} Scan this browser for older data</button>
+        </div>
+
         <div class="card">
           <div class="card-title" style="margin-bottom:16px">Organisation settings <span style="font-size:11px;color:var(--primary);margin-left:8px;font-weight:400">Admin only</span></div>
           <div class="form-grid">
@@ -131,6 +139,53 @@ window.NexCRM = window.NexCRM || {};
           </div>
         </div>`:''}
       </div>`;
+  }
+
+  function scanLocalBackup() {
+    const S = NexCRM.Utils, Ic = NexCRM.icon;
+    const found = NexCRM.Store._scanLocalBackup();
+    const total = found.users + found.tickets + found.customers + found.departments + found.categories;
+
+    if (!total) {
+      S.openModal('Data recovery scan',
+        `<div style="text-align:center;padding:20px 10px">
+          <div style="color:var(--emerald);margin-bottom:12px">${Ic('check_c',36)}</div>
+          <p style="font-size:13px;color:var(--text-2)">No older local data found in this browser. Nothing to recover.</p>
+        </div>`,
+        `<button class="btn btn-primary" onclick="NexCRM.Utils.closeModal()">Close</button>`);
+      return;
+    }
+
+    const rows = [
+      { label:'Users',       count:found.users },
+      { label:'Tickets',     count:found.tickets },
+      { label:'Customers',   count:found.customers },
+      { label:'Departments', count:found.departments },
+      { label:'Categories',  count:found.categories },
+    ].filter(r => r.count > 0);
+
+    S.openModal('Old local data found',
+      `<p style="font-size:13px;color:var(--s600);margin-bottom:16px;line-height:1.6">
+        Found the following records still sitting in this browser's storage. Merging will add any of these that don't already exist in your current database (matched by ID/ticket number) — nothing gets overwritten or duplicated.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${rows.map(r => `<div class="col-item"><span class="col-item-label">${r.label}</span><span style="font-size:13px;font-weight:700;color:var(--primary)">${r.count}</span></div>`).join('')}
+      </div>`,
+      `<button class="btn btn-ghost" onclick="NexCRM.Utils.closeModal()">Cancel</button>
+       <button class="btn btn-primary" onclick="NexCRM.Profile.mergeLocalBackup()">${Ic('check_c',13)} Merge into current database</button>`);
+  }
+
+  function mergeLocalBackup() {
+    const added = NexCRM.Store._mergeLocalBackup();
+    const total = Object.values(added).reduce((a,b) => a+b, 0);
+    NexCRM.Utils.closeModal();
+    if (!total) {
+      NexCRM.toast('Nothing new to merge — all records already exist', 'info');
+      return;
+    }
+    const parts = Object.entries(added).filter(([,v]) => v>0).map(([k,v]) => `${v} ${k}`);
+    NexCRM.toast(`Recovered: ${parts.join(', ')}`, 'success');
+    render();
   }
 
   function openAvatarPicker() {
@@ -233,5 +288,5 @@ window.NexCRM = window.NexCRM || {};
     NexCRM.toast('Organisation settings saved','success');
   }
 
-  window.NexCRM.Profile={render,openAvatarPicker,setPresetAvatar,handleAvatarUpload,removeAvatar,saveProfile,changePassword,checkStrength,toggleNotif,saveOrgSettings};
+  window.NexCRM.Profile={render,openAvatarPicker,setPresetAvatar,handleAvatarUpload,removeAvatar,saveProfile,changePassword,checkStrength,toggleNotif,saveOrgSettings,scanLocalBackup,mergeLocalBackup};
 })();
