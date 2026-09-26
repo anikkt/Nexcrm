@@ -1,0 +1,58 @@
+name: Deploy NexCRM to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+
+# Cancel any in-progress deployment when a new push arrives
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # 1. Check out the source (keys are still placeholders here)
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. Replace placeholder tokens with real values from GitHub Secrets
+      #    Secrets never appear in logs — GitHub masks them automatically
+      - name: Inject Firebase config
+        env:
+          K:   ${{ secrets.FIREBASE_API_KEY }}
+          D:   ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          P:   ${{ secrets.FIREBASE_PROJECT_ID }}
+          B:   ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          S:   ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          A:   ${{ secrets.FIREBASE_APP_ID }}
+        run: |
+          sed -i "s|__FIREBASE_API_KEY__|${K}|g"            js/store.js
+          sed -i "s|__FIREBASE_AUTH_DOMAIN__|${D}|g"        js/store.js
+          sed -i "s|__FIREBASE_PROJECT_ID__|${P}|g"         js/store.js
+          sed -i "s|__FIREBASE_STORAGE_BUCKET__|${B}|g"     js/store.js
+          sed -i "s|__FIREBASE_MESSAGING_SENDER_ID__|${S}|g" js/store.js
+          sed -i "s|__FIREBASE_APP_ID__|${A}|g"             js/store.js
+          echo "Firebase config injected."
+
+      # 3. Package and deploy to GitHub Pages
+      - name: Configure Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
