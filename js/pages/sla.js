@@ -1,7 +1,7 @@
 window.NexCRM = window.NexCRM || {};
 
 (function () {
-  let _tab = 'compliance';  // 'compliance' | 'rules'
+  let _activeTab = 'compliance';  // 'compliance' | 'rules'
 
   // ── SLA status calculator ──────────────────────────────────────────────────
   function slaStatus(ticket) {
@@ -38,8 +38,8 @@ window.NexCRM = window.NexCRM || {};
 
     // Tab headers
     const tabs=`<div style="display:flex;gap:2px;background:var(--s100);border-radius:10px;padding:3px;width:fit-content">
-      <button onclick="NexCRM.SLA._tab('compliance')" id="tab-comp" class="btn btn-sm" style="${_tab==='compliance'?'background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)':'color:var(--text-2);background:transparent'}">SLA Compliance</button>
-      <button onclick="NexCRM.SLA._tab('rules')" id="tab-rules" class="btn btn-sm" style="${_tab==='rules'?'background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)':'color:var(--text-2);background:transparent'}">SLA Rules</button>
+      <button onclick="NexCRM.SLA._tab('compliance')" id="tab-comp" class="btn btn-sm" style="${_activeTab==='compliance'?'background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)':'color:var(--text-2);background:transparent'}">SLA Compliance</button>
+      <button onclick="NexCRM.SLA._tab('rules')" id="tab-rules" class="btn btn-sm" style="${_activeTab==='rules'?'background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)':'color:var(--text-2);background:transparent'}">SLA Rules</button>
     </div>`;
 
     // Summary row
@@ -52,7 +52,7 @@ window.NexCRM = window.NexCRM || {};
     </div>`;
 
     let content='';
-    if(_tab==='compliance'){
+    if(_activeTab==='compliance'){
       // All tickets with SLA status
       const sorted=[...tickets].map(t=>({t,s:slaStatus(t)})).sort((a,b)=>b.s.sort-a.s.sort);
       const rows=sorted.map(({t,s})=>{
@@ -146,7 +146,7 @@ window.NexCRM = window.NexCRM || {};
       </div>`;
   }
 
-  function _tab(t){ _tab=t; render(); }
+  function _tab(t){ _activeTab=t; render(); }
 
   function saveRules() {
     const priorities=['critical','high','medium','low'];
