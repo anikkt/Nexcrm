@@ -1,9 +1,43 @@
 window.NexCRM = window.NexCRM || {};
 
 (function () {
+  let _repTab = 'analytics';   // 'analytics' | 'history'
+  let _parsedImport = [];
+  let _hq='', _hTicket='all', _hField='all', _hFrom='', _hTo='';
+
+  // Expected columns (case-insensitive, flexible on exact naming)
+  const COL_MAP = {
+    'ticket number':'ticketNumber', 'case owner':'caseOwner', 'field / event':'field',
+    'field/event':'field', 'old value':'oldValue', 'new value':'newValue',
+    'edited by':'editedBy', 'edit date':'editDate', 'created_date':'createdDate',
+    'closed_date':'closedDate', 'due_date':'dueDate', 'department':'department',
+    'customer':'customer', 'company':'company', 'category':'category',
+    'priority':'priority', 'status':'status',
+  };
+
   function render() {
     NexCRM.Layout.renderTopbar('Reports & Analytics');
     NexCRM.Layout.renderSidebar('reports');
+    if (_repTab === 'history') { renderHistory(); return; }
+    renderAnalytics();
+  }
+
+  function _tabBar() {
+    const Ic = NexCRM.icon;
+    return `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div style="display:flex;gap:2px;background:var(--s100);border-radius:10px;padding:3px;width:fit-content">
+        <button onclick="NexCRM.Reports._setTab('analytics')" class="btn btn-sm" style="${_repTab==='analytics'?'background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)':'color:var(--text-2);background:transparent'}">Analytics</button>
+        <button onclick="NexCRM.Reports._setTab('history')" class="btn btn-sm" style="${_repTab==='history'?'background:var(--surface);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,0.08)':'color:var(--text-2);background:transparent'}">Case History ${NexCRM.Store.ImportedEvents.getAll().length?`<span class="nav-badge" style="margin-left:5px">${NexCRM.Store.ImportedEvents.getAll().length}</span>`:''}</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="NexCRM.Reports.exportSummary()">${Ic('download',13)} Export report</button>
+        <button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets.exportEventLog(null)">${Ic('file',13)} Export event log</button>
+      </div>
+    </div>`;
+  }
+  function _setTab(t){ _repTab=t; render(); }
+
+  function renderAnalytics() {
     const S=NexCRM.Utils, Ic=NexCRM.icon;
     const tickets=NexCRM.Store.Tickets.getAll();
     const customers=NexCRM.Store.Customers.getAll();
@@ -86,13 +120,8 @@ window.NexCRM = window.NexCRM || {};
 
     document.getElementById('page-content').innerHTML = `
       <div class="page-body">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <div><p class="text-muted" style="font-size:13px">All metrics calculated from live case data</p></div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost btn-sm" onclick="NexCRM.Reports.exportSummary()">${Ic('download',13)} Export report</button>
-            <button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets.exportEventLog(null)">${Ic('file',13)} Export event log</button>
-          </div>
-        </div>
+        ${_tabBar()}
+        <p class="text-muted" style="font-size:13px;margin-top:-8px">All metrics calculated from live case data</p>
 
         <!-- Summary KPIs -->
         <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px">${kpiHtml}</div>
@@ -141,6 +170,234 @@ window.NexCRM = window.NexCRM || {};
       </div>`;
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // CASE HISTORY — imported event log browser
+  // ══════════════════════════════════════════════════════════════════════════
+
+  function renderHistory() {
+    const S = NexCRM.Utils, Ic = NexCRM.icon;
+    const isManager = NexCRM.Auth.isManager();
+    let rows = NexCRM.Store.ImportedEvents.getAll();
+
+    // Build filter option lists from the imported data itself
+    const ticketNums = [...new Set(rows.map(r=>r.ticketNumber).filter(Boolean))].sort();
+    const fields     = [...new Set(rows.map(r=>r.field).filter(Boolean))].sort();
+
+    // Apply filters
+    let filtered = rows;
+    if (_hq) {
+      const q=_hq.toLowerCase();
+      filtered = filtered.filter(r =>
+        (r.ticketNumber||'').toLowerCase().includes(q) ||
+        (r.caseOwner||'').toLowerCase().includes(q) ||
+        (r.customer||'').toLowerCase().includes(q) ||
+        (r.company||'').toLowerCase().includes(q) ||
+        (r.oldValue||'').toLowerCase().includes(q) ||
+        (r.newValue||'').toLowerCase().includes(q));
+    }
+    if (_hTicket!=='all') filtered = filtered.filter(r=>r.ticketNumber===_hTicket);
+    if (_hField!=='all')  filtered = filtered.filter(r=>r.field===_hField);
+    if (_hFrom) filtered = filtered.filter(r=>r.editDate && r.editDate.slice(0,10) >= _hFrom);
+    if (_hTo)   filtered = filtered.filter(r=>r.editDate && r.editDate.slice(0,10) <= _hTo);
+
+    const tOpts=`<option value="all">All tickets</option>`+ticketNums.map(n=>`<option value="${n}" ${_hTicket===n?'selected':''}>${n}</option>`).join('');
+    const fOpts=`<option value="all">All fields/events</option>`+fields.map(f=>`<option value="${S.esc(f)}" ${_hField===f?'selected':''}>${S.esc(f)}</option>`).join('');
+
+    const bodyRows = filtered.slice(0,500).map(r => `
+      <tr>
+        <td class="td-mono">${S.esc(r.ticketNumber||'—')}</td>
+        <td class="td-sm">${S.esc(r.editDate||'—')}</td>
+        <td><span class="badge" style="background:#6366f118;color:#6366f1;font-size:11px">${S.esc(r.field||'—')}</span></td>
+        <td class="td-sm" style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.oldValue?S.esc(r.oldValue):'—'}</td>
+        <td class="td-sm" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.newValue?S.esc(r.newValue):'—'}</td>
+        <td class="td-sm">${S.esc(r.editedBy||'—')}</td>
+        <td class="td-sm">${S.esc(r.caseOwner||'—')}</td>
+        <td class="td-sm">${S.esc(r.department||'—')}</td>
+        <td class="td-sm">${S.esc(r.category||'—')}</td>
+        <td class="td-sm">${S.esc(r.customer||'—')}</td>
+        <td class="td-sm">${r.priority?S.priorityBadge((r.priority||'').toLowerCase()):'—'}</td>
+        <td class="td-sm">${r.status?S.statusBadge((r.status||'').toLowerCase().replace(/\s+/g,'_')):S.esc(r.status||'—')}</td>
+      </tr>`).join('');
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="page-body">
+        ${_tabBar()}
+
+        ${!rows.length ? `
+          <div class="upload-zone-like card" style="text-align:center;padding:48px 24px;border:2px dashed var(--border)">
+            <div style="color:var(--s300);margin-bottom:14px">${Ic('file',40)}</div>
+            <div class="card-title" style="margin-bottom:6px">No case history imported yet</div>
+            <p class="text-muted" style="font-size:13px;margin-bottom:20px;max-width:420px;margin-left:auto;margin-right:auto">
+              Upload a CSV export of your ticket change history — from your old CRM, a spreadsheet, or a previous NexCRM event-log export — to browse it here without needing the original tickets to exist in this system.
+            </p>
+            <button class="btn btn-primary" onclick="NexCRM.Reports.openImportModal()">${Ic('upload',15)} Import event log CSV</button>
+          </div>
+        ` : `
+          <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+            <div class="search-inline">${Ic('search',14)}<input type="text" id="hist-search" placeholder="Search history…" value="${S.esc(_hq)}" oninput="NexCRM.Reports._setHQ(this.value)" style="width:170px"></div>
+            <select class="filter-select" onchange="NexCRM.Reports._setHTicket(this.value)">${tOpts}</select>
+            <select class="filter-select" onchange="NexCRM.Reports._setHField(this.value)">${fOpts}</select>
+            <input type="date" class="filter-select" value="${_hFrom}" onchange="NexCRM.Reports._setHFrom(this.value)" title="From date">
+            <input type="date" class="filter-select" value="${_hTo}" onchange="NexCRM.Reports._setHTo(this.value)" title="To date">
+            <div style="flex:1"></div>
+            ${isManager?`<button class="btn btn-primary" onclick="NexCRM.Reports.openImportModal()">${Ic('upload',14)} Import more</button>`:''}
+            <button class="btn btn-ghost" onclick="NexCRM.Reports.exportHistory()">${Ic('download',14)} Export filtered</button>
+            ${isManager?`<button class="btn btn-ghost" style="color:var(--rose)" onclick="NexCRM.Reports.confirmClearHistory()">${Ic('trash',14)}</button>`:''}
+          </div>
+
+          <div class="card-flush">
+            <div style="overflow-x:auto">
+              <table class="data-table">
+                <thead><tr>
+                  <th>Ticket</th><th>Edit Date</th><th>Field / Event</th><th>Old Value</th><th>New Value</th>
+                  <th>Edited By</th><th>Case Owner</th><th>Department</th><th>Category</th><th>Customer</th><th>Priority</th><th>Status</th>
+                </tr></thead>
+                <tbody>${bodyRows || `<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--text-3)">No events match the current filters.</td></tr>`}</tbody>
+              </table>
+            </div>
+            <div class="table-footer">
+              <span class="text-muted">${filtered.length} event${filtered.length!==1?'s':''}${filtered.length>500?' (showing first 500)':''} · ${rows.length} total imported</span>
+              <button class="btn btn-ghost btn-sm" onclick="NexCRM.Reports._clearHistoryFilters()">Clear filters</button>
+            </div>
+          </div>
+        `}
+      </div>`;
+
+    const si=document.getElementById('hist-search');
+    if(si&&_hq){const l=_hq.length;si.focus();try{si.setSelectionRange(l,l);}catch(e){}}
+  }
+
+  function _setHQ(v){_hq=v;renderHistory();}
+  function _setHTicket(v){_hTicket=v;renderHistory();}
+  function _setHField(v){_hField=v;renderHistory();}
+  function _setHFrom(v){_hFrom=v;renderHistory();}
+  function _setHTo(v){_hTo=v;renderHistory();}
+  function _clearHistoryFilters(){_hq='';_hTicket='all';_hField='all';_hFrom='';_hTo='';renderHistory();}
+
+  // ── Import modal ─────────────────────────────────────────────────────────
+  function openImportModal() {
+    const S=NexCRM.Utils, Ic=NexCRM.icon;
+    _parsedImport=[];
+    S.openModal('Import event log / case history',
+      `<div style="margin-bottom:14px">
+        <p style="font-size:13px;color:var(--s600);line-height:1.6;margin-bottom:10px">
+          Upload a CSV export of your ticket change history. This is stored separately from your live tickets — it's for browsing historical case data, and does not modify or create any tickets in NexCRM.
+        </p>
+        <div style="background:var(--s50);border-radius:8px;padding:10px 12px;font-size:11px;font-family:monospace;color:var(--s700);overflow-x:auto;line-height:1.6">
+          Ticket Number, Case Owner, Field / Event, Old Value, New Value, Edited By,<br>Edit Date, Created_Date, Closed_Date, Due_Date, Department, Customer,<br>Company, Category, Priority, Status
+        </div>
+      </div>
+      <div class="form-field"><label>Select CSV file</label><input type="file" id="hist-csv-file" accept=".csv" class="input" onchange="NexCRM.Reports.previewImport(this)"></div>
+      <div id="hist-csv-preview" style="margin-top:14px"></div>
+      <div id="hist-import-mode" style="margin-top:14px;display:none">
+        <label class="checkbox-label"><input type="checkbox" id="hist-append-mode" checked> Add to existing history (uncheck to replace all imported history)</label>
+      </div>`,
+      `<button class="btn btn-ghost" onclick="NexCRM.Utils.closeModal()">Cancel</button>
+       <button class="btn btn-primary" id="hist-import-btn" onclick="NexCRM.Reports.importHistory()" disabled>${Ic('upload',13)} Import rows</button>`,'lg');
+  }
+
+  // Robust CSV parser — handles quoted fields containing commas
+  function _parseCSVRaw(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return [];
+    function splitLine(line) {
+      const vals=[]; let inQ=false, cur='';
+      for (const ch of line) {
+        if (ch === '"') inQ = !inQ;
+        else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur=''; }
+        else cur += ch;
+      }
+      vals.push(cur.trim());
+      return vals.map(v => v.replace(/^"|"$/g,''));
+    }
+    const headers = splitLine(lines[0]).map(h => h.trim().toLowerCase());
+    return lines.slice(1).map(line => {
+      const vals = splitLine(line);
+      const obj = {};
+      headers.forEach((h,i) => {
+        const key = COL_MAP[h] || h.replace(/[^a-z0-9]/g,'');
+        obj[key] = vals[i] || '';
+      });
+      return obj;
+    }).filter(r => r.ticketNumber);
+  }
+
+  function previewImport(input) {
+    const file = input.files[0]; if (!file) return;
+    const S = NexCRM.Utils;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const rows = _parseCSVRaw(e.target.result);
+      _parsedImport = rows;
+      const preview = document.getElementById('hist-csv-preview');
+      const btn = document.getElementById('hist-import-btn');
+      const modeDiv = document.getElementById('hist-import-mode');
+      if (!rows.length) {
+        preview.innerHTML = `<p style="color:var(--rose);font-size:13px">No valid rows found. Check the file has a "Ticket Number" column.</p>`;
+        btn.disabled = true; modeDiv.style.display='none'; return;
+      }
+      btn.disabled = false;
+      modeDiv.style.display = NexCRM.Store.ImportedEvents.getAll().length ? 'block' : 'none';
+      preview.innerHTML = `
+        <div style="font-size:12px;color:var(--s600);margin-bottom:8px">${rows.length} event${rows.length!==1?'s':''} ready to import</div>
+        <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead><tr style="background:var(--s50)">${['Ticket','Field/Event','Old','New','Edited By'].map(h=>`<th style="padding:6px 9px;text-align:left;color:var(--s500);font-weight:600">${h}</th>`).join('')}</tr></thead>
+            <tbody>${rows.slice(0,8).map(r=>`<tr style="border-top:1px solid var(--s100)">
+              <td style="padding:6px 9px;font-family:monospace;color:var(--primary)">${S.esc(r.ticketNumber)}</td>
+              <td style="padding:6px 9px">${S.esc(r.field||'—')}</td>
+              <td style="padding:6px 9px;color:var(--s600);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.esc(r.oldValue||'—')}</td>
+              <td style="padding:6px 9px;color:var(--s600);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S.esc(r.newValue||'—')}</td>
+              <td style="padding:6px 9px;color:var(--s600)">${S.esc(r.editedBy||'—')}</td>
+            </tr>`).join('')}
+            ${rows.length>8?`<tr><td colspan="5" style="padding:6px 9px;text-align:center;color:var(--s400)">+${rows.length-8} more rows…</td></tr>`:''}</tbody>
+          </table>
+        </div>`;
+    };
+    reader.readAsText(file);
+  }
+
+  function importHistory() {
+    if (!_parsedImport.length) return;
+    const appendMode = document.getElementById('hist-append-mode')?.checked !== false;
+    if (appendMode) NexCRM.Store.ImportedEvents.append(_parsedImport);
+    else NexCRM.Store.ImportedEvents.replace(_parsedImport);
+    const n = _parsedImport.length;
+    _parsedImport = [];
+    NexCRM.Utils.closeModal();
+    NexCRM.toast(`${n} event${n!==1?'s':''} imported`, 'success');
+    _repTab = 'history';
+    render();
+  }
+
+  function confirmClearHistory() {
+    NexCRM.Utils.confirm('Clear all imported case history? This only removes the imported event log — your live tickets are not affected.', () => {
+      NexCRM.Store.ImportedEvents.clear();
+      NexCRM.toast('Case history cleared', 'success');
+      render();
+    }, 'Clear history', 'danger');
+  }
+
+  function exportHistory() {
+    const S = NexCRM.Utils;
+    let rows = NexCRM.Store.ImportedEvents.getAll();
+    if (_hq) { const q=_hq.toLowerCase(); rows = rows.filter(r => (r.ticketNumber||'').toLowerCase().includes(q) || (r.caseOwner||'').toLowerCase().includes(q) || (r.customer||'').toLowerCase().includes(q)); }
+    if (_hTicket!=='all') rows = rows.filter(r=>r.ticketNumber===_hTicket);
+    if (_hField!=='all')  rows = rows.filter(r=>r.field===_hField);
+    if (_hFrom) rows = rows.filter(r=>r.editDate && r.editDate.slice(0,10) >= _hFrom);
+    if (_hTo)   rows = rows.filter(r=>r.editDate && r.editDate.slice(0,10) <= _hTo);
+
+    const out = rows.map(r => ({
+      'Ticket Number':r.ticketNumber||'', 'Case Owner':r.caseOwner||'', 'Field / Event':r.field||'',
+      'Old Value':r.oldValue||'', 'New Value':r.newValue||'', 'Edited By':r.editedBy||'',
+      'Edit Date':r.editDate||'', 'Created_Date':r.createdDate||'', 'Closed_Date':r.closedDate||'',
+      'Due_Date':r.dueDate||'', 'Department':r.department||'', 'Customer':r.customer||'',
+      'Company':r.company||'', 'Category':r.category||'', 'Priority':r.priority||'', 'Status':r.status||'',
+    }));
+    S.exportCSV(out, 'nexcrm-case-history-export.csv');
+    NexCRM.toast(`${out.length} events exported`, 'success');
+  }
+
   function exportSummary() {
     const S=NexCRM.Utils;
     const tickets=NexCRM.Store.Tickets.getAll();
@@ -169,5 +426,10 @@ window.NexCRM = window.NexCRM || {};
     NexCRM.toast('Agent report exported','success');
   }
 
-  window.NexCRM.Reports={render,exportSummary,exportAgents};
+  window.NexCRM.Reports={
+    render, exportSummary, exportAgents,
+    _setTab, renderAnalytics, renderHistory,
+    _setHQ, _setHTicket, _setHField, _setHFrom, _setHTo, _clearHistoryFilters,
+    openImportModal, previewImport, importHistory, confirmClearHistory, exportHistory,
+  };
 })();
