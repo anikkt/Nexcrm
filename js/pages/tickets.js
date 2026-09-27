@@ -115,7 +115,7 @@ window.NexCRM = window.NexCRM || {};
           <div style="flex:1"></div>
           ${canCreate?`<button class="btn btn-primary" onclick="NexCRM.Tickets.openCreateModal()">${Ic('plus',15)} New ticket</button>`:''}
           ${canCreate?`<button class="btn btn-ghost" onclick="NexCRM.Tickets.openImportModal()">${Ic('upload',14)} Import CSV</button>`:''}
-          <button class="btn btn-ghost" onclick="NexCRM.Tickets.exportEventLog(null)">${Ic('download',14)} Event log</button>
+          <button class="btn btn-ghost" onclick="NexCRM.Tickets.openEventLogExportModal(null)">${Ic('download',14)} Event log</button>
           ${NexCRM.Auth.isAdmin()?`<button class="btn btn-ghost" onclick="NexCRM.Tickets.openColumnManager()" title="Columns">${Ic('settings',14)}</button>`:''}
         </div>
         <div class="card-flush">
@@ -253,7 +253,7 @@ window.NexCRM = window.NexCRM || {};
               <div class="card-title">Change history</div>
               <div class="text-muted" style="font-size:12px;margin-top:2px">${changeLog.length} event${changeLog.length!==1?'s':''} recorded for ${t.number}</div>
             </div>
-            <button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets.exportEventLog('${t.id}')">${Ic('download',13)} Export event log</button>
+            <button class="btn btn-ghost btn-sm" onclick="NexCRM.Tickets.openEventLogExportModal('${t.id}')">${Ic('download',13)} Export event log</button>
           </div>
           <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px;overflow:hidden">
             <table class="data-table">
@@ -345,62 +345,127 @@ window.NexCRM = window.NexCRM || {};
   function _resetCols(){saveCols([...DEFAULT_COLS]);NexCRM.Utils.closeModal();renderList();}
 
   // ── Event log export — matches the Excel format exactly ───────────────────
-  function exportEventLog(ticketId) {
-    const S=NexCRM.Utils;
-    const allTickets=NexCRM.Store.Tickets.getAll();
-    const tickets=ticketId?allTickets.filter(t=>t.id===ticketId||t.number===ticketId):allTickets;
+  // ── Event log export — filter + column picker before downloading ──────────
+  const EVLOG_COL_LABELS = {
+    ticketNumber:'Ticket Number', caseOwner:'Case Owner', field:'Field / Event',
+    oldValue:'Old Value', newValue:'New Value', editedBy:'Edited By', editDate:'Edit Date',
+    createdDate:'Created_Date', closedDate:'Closed_Date', dueDate:'Due_Date',
+    department:'Department', customer:'Customer', company:'Company', category:'Category',
+    priority:'Priority', status:'Status',
+  };
 
-    const rows=[];
-    for(const t of tickets) {
-      const customer=NexCRM.Store.Customers.get(t.customerId);
-      const dept=NexCRM.Store.Departments.get(t.departmentId);
-      const cat=NexCRM.Store.TicketCategories.get(t.categoryId);
-      const caseOwner=S.userName(t.assignedToId);
-      // Find closed date from changeLog
-      const changeLog=(t.changeLog||[]).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
-      const closedEvent=[...changeLog].reverse().find(cl=>cl.field==='Status'&&cl.newRaw==='closed');
-      const closedDate=closedEvent?S.fmtDate(closedEvent.timestamp):'';
-
-      // Common ticket context fields
-      const context={
-        'Ticket Number':t.number,
-        'Case Owner':caseOwner,
-        'Created_Date':S.fmtDate(t.createdAt),
-        'Closed_Date':closedDate,
-        'Due_Date':t.dueDate||'',
-        'Department':dept?.name||'',
-        'Customer':customer?.name||'',
-        'Company':customer?.company||'',
-        'Category':cat?.name||'',
-        'Priority':S.PRIORITY_CFG[t.priority]?.l||t.priority,
-        'Status':S.STATUS_CFG[t.status]?.l||t.status,
+  // Flattens live tickets + their changeLogs into export-ready rows (internal keys, not display labels yet)
+  function _buildEventLogRows(tickets) {
+    const S = NexCRM.Utils;
+    const rows = [];
+    for (const t of tickets) {
+      const customer = NexCRM.Store.Customers.get(t.customerId);
+      const dept = NexCRM.Store.Departments.get(t.departmentId);
+      const cat = NexCRM.Store.TicketCategories.get(t.categoryId);
+      const caseOwner = S.userName(t.assignedToId);
+      const changeLog = (t.changeLog||[]).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));
+      const closedEvent = [...changeLog].reverse().find(cl=>cl.field==='Status'&&cl.newRaw==='closed');
+      const context = {
+        ticketNumber:t.number, caseOwner, createdDate:S.fmtDate(t.createdAt),
+        closedDate: closedEvent?S.fmtDate(closedEvent.timestamp):'', dueDate:t.dueDate||'',
+        department:dept?.name||'', customer:customer?.name||'', company:customer?.company||'',
+        category:cat?.name||'', priority:S.PRIORITY_CFG[t.priority]?.l||t.priority,
+        status:S.STATUS_CFG[t.status]?.l||t.status,
       };
-
-      // One row per change log event (exclude Comment Added for the export)
-      const events=changeLog.filter(cl=>cl.field!=='Comment Added');
-      if(!events.length){
-        // Ticket with no log — still include with a 'Created' event
-        rows.push({'Ticket Number':t.number,'Case Owner':caseOwner,'Field / Event':'Created','Old Value':'','New Value':'','Edited By':'','Edit Date':S.fmtDate(t.createdAt),...context});
+      const events = changeLog.filter(cl=>cl.field!=='Comment Added');
+      if (!events.length) {
+        rows.push({ ...context, field:'Created', oldValue:'', newValue:'', editedBy:'', editDate:S.fmtDate(t.createdAt) });
       } else {
-        for(const cl of events){
-          const editor=NexCRM.Store.Users.get(cl.editedById);
+        for (const cl of events) {
+          const editor = NexCRM.Store.Users.get(cl.editedById);
           rows.push({
-            'Ticket Number':t.number,
-            'Case Owner':caseOwner,
-            'Field / Event':cl.field,
-            'Old Value':cl.oldValue||'',
-            'New Value':cl.newValue||'',
-            'Edited By':editor?.name||'',
-            'Edit Date':`${S.fmtDate(cl.timestamp)} ${new Date(cl.timestamp).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`,
-            ...context,
+            ...context, field:cl.field, oldValue:cl.oldValue||'', newValue:cl.newValue||'',
+            editedBy: editor?.name||'',
+            editDate: `${S.fmtDate(cl.timestamp)} ${new Date(cl.timestamp).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`,
           });
         }
       }
     }
+    return rows;
+  }
 
-    if(!rows.length){NexCRM.toast('No data to export','warning');return;}
-    S.exportCSV(rows, ticketId ? `nexcrm-event-log-${ticketId}.csv` : 'nexcrm-event-log-all.csv');
-    NexCRM.toast(`Event log exported — ${rows.length} events`,'success');
+  function openEventLogExportModal(ticketId) {
+    const S = NexCRM.Utils, Ic = NexCRM.icon;
+    const allTickets = NexCRM.Store.Tickets.getAll();
+    const scoped = ticketId ? allTickets.filter(t=>t.id===ticketId||t.number===ticketId) : allTickets;
+    const rows = _buildEventLogRows(scoped);
+
+    const fields = [...new Set(rows.map(r=>r.field).filter(Boolean))].sort();
+    const depts  = NexCRM.Store.Departments.getAll();
+    const cats   = NexCRM.Store.TicketCategories.getAll();
+
+    const selOpts = (opts, current) => `<option value="all">Any</option>` + opts.map(o => `<option value="${S.esc(o)}" ${current===o?'selected':''}>${S.esc(o)}</option>`).join('');
+    const nameOpts = (arr) => `<option value="all">Any</option>` + arr.map(x => `<option value="${S.esc(x.name)}">${S.esc(x.name)}</option>`).join('');
+
+    const colCheckboxes = Object.entries(EVLOG_COL_LABELS).map(([key,label]) =>
+      `<label class="checkbox-label" style="padding:4px 0"><input type="checkbox" class="evl-col" value="${key}" checked> ${label}</label>`
+    ).join('');
+
+    const body = `
+      ${ticketId ? `<p style="font-size:12px;color:var(--text-3);margin-bottom:10px">Scoped to this ticket only.</p>` : ''}
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="form-field"><label>Field / Event</label><select id="evl-field" class="input">${selOpts(fields,'')}</select></div>
+        <div class="form-field"><label>Department</label><select id="evl-dept" class="input">${nameOpts(depts)}</select></div>
+        <div class="form-field"><label>Category</label><select id="evl-cat" class="input">${nameOpts(cats)}</select></div>
+        <div class="form-field"><label>Priority</label><select id="evl-priority" class="input">${selOpts(Object.values(S.PRIORITY_CFG).map(v=>v.l),'')}</select></div>
+        <div class="form-field"><label>Status</label><select id="evl-status" class="input">${selOpts(Object.values(S.STATUS_CFG).map(v=>v.l),'')}</select></div>
+        <div class="form-field"><label>Edit date after</label><input type="date" id="evl-from" class="input"></div>
+        <div class="form-field"><label>Edit date before</label><input type="date" id="evl-to" class="input"></div>
+      </div>
+      <div class="sec-lbl" style="margin-top:10px">Columns to include</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-top:8px;max-height:220px;overflow-y:auto;padding-right:4px">${colCheckboxes}</div>
+      <div style="margin-top:8px"><a class="link" style="font-size:12px;cursor:pointer" onclick="NexCRM.Tickets._toggleAllEvlCols(true)">Select all</a> · <a class="link" style="font-size:12px;cursor:pointer" onclick="NexCRM.Tickets._toggleAllEvlCols(false)">Select none</a></div>
+    `;
+
+    NexCRM.Utils.openModal('Export event log', body,
+      `<button class="btn btn-ghost" onclick="NexCRM.Utils.closeModal()">Cancel</button>
+       <button class="btn btn-primary" onclick="NexCRM.Tickets.runEventLogExport('${ticketId||''}')">${Ic('download',13)} Download CSV</button>`, 'lg');
+  }
+
+  function _toggleAllEvlCols(state) {
+    document.querySelectorAll('.evl-col').forEach(cb => cb.checked = state);
+  }
+
+  function runEventLogExport(ticketId) {
+    const S = NexCRM.Utils;
+    const allTickets = NexCRM.Store.Tickets.getAll();
+    const scoped = ticketId ? allTickets.filter(t=>t.id===ticketId||t.number===ticketId) : allTickets;
+    let rows = _buildEventLogRows(scoped);
+
+    const fField    = document.getElementById('evl-field')?.value || 'all';
+    const fDept     = document.getElementById('evl-dept')?.value || 'all';
+    const fCat      = document.getElementById('evl-cat')?.value || 'all';
+    const fPriority = document.getElementById('evl-priority')?.value || 'all';
+    const fStatus   = document.getElementById('evl-status')?.value || 'all';
+    const fFrom     = document.getElementById('evl-from')?.value || '';
+    const fTo       = document.getElementById('evl-to')?.value || '';
+
+    if (fField!=='all')    rows = rows.filter(r=>r.field===fField);
+    if (fDept!=='all')     rows = rows.filter(r=>r.department===fDept);
+    if (fCat!=='all')      rows = rows.filter(r=>r.category===fCat);
+    if (fPriority!=='all') rows = rows.filter(r=>r.priority===fPriority);
+    if (fStatus!=='all')   rows = rows.filter(r=>r.status===fStatus);
+    if (fFrom) rows = rows.filter(r=>r.editDate && r.editDate.slice(0,10) >= fFrom);
+    if (fTo)   rows = rows.filter(r=>r.editDate && r.editDate.slice(0,10) <= fTo);
+
+    const selectedCols = [...document.querySelectorAll('.evl-col:checked')].map(cb => cb.value);
+    if (!selectedCols.length) { NexCRM.toast('Select at least one column', 'error'); return; }
+
+    const out = rows.map(r => {
+      const o = {};
+      selectedCols.forEach(key => { o[EVLOG_COL_LABELS[key]] = r[key] || ''; });
+      return o;
+    });
+
+    if (!out.length) { NexCRM.toast('No events match the current filters', 'warning'); return; }
+    S.exportCSV(out, ticketId ? `nexcrm-event-log-${ticketId}.csv` : 'nexcrm-event-log-all.csv');
+    NexCRM.Utils.closeModal();
+    NexCRM.toast(`${out.length} event${out.length!==1?'s':''} exported (${selectedCols.length} column${selectedCols.length!==1?'s':''})`, 'success');
   }
 
   // ── CSV Import ─────────────────────────────────────────────────────────────
@@ -448,7 +513,8 @@ window.NexCRM = window.NexCRM || {};
 
   window.NexCRM.Tickets={
     render,renderList,renderDetail,openCreateModal,openEditModal,
-    create,update,patchField,confirmDelete,addComment,exportEventLog,
+    create,update,patchField,confirmDelete,addComment,
+    openEventLogExportModal,_toggleAllEvlCols,runEventLogExport,
     openImportModal,downloadTemplate,previewCSV,importCSV,
     openColumnManager,_toggleCol,_resetCols,
     _setSort,_setQ,_setSt,_setPr,_setCust,_setDept,_setCat,_clearFilters,
