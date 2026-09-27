@@ -108,17 +108,30 @@ window.NexCRM = window.NexCRM || {};
         ${isAdmin?`
         <div class="card" style="border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.04)">
           <div class="card-title" style="margin-bottom:6px">${Ic('alert_c',15)} Data recovery <span style="font-size:11px;color:var(--primary);margin-left:8px;font-weight:400">Admin only</span></div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <span style="font-size:12px;color:var(--text-3)">Current storage backend:</span>
             ${NexCRM._backend === 'firebase'
               ? `<span class="badge" style="background:#ecfdf5;color:#065f46">${Ic('check_c',11)} Firebase (shared, synced)</span>`
               : `<span class="badge" style="background:#fff7ed;color:#c2410c">${Ic('alert_t',11)} Local browser storage only</span>`}
           </div>
-          ${NexCRM._backend !== 'firebase' ? `<p style="font-size:12px;color:var(--amber);margin-bottom:12px;line-height:1.6">⚠️ Not connected to Firebase — your data only lives in this browser and has a small storage limit (5-10 MB). Large imports or bulk ticket generation can exceed it. Check that the Firebase config in <code style="font-family:monospace;background:var(--s50);padding:1px 5px;border-radius:4px">js/store.js</code> has real values, not placeholders.</p>` : ''}
+          ${NexCRM._firebaseDiag ? `
+          <div style="font-size:11px;color:var(--text-3);font-family:monospace;background:var(--s50);padding:8px 10px;border-radius:6px;margin-bottom:10px">
+            Firebase project configured: <strong style="color:${NexCRM._firebaseDiag.looksLikePlaceholder?'var(--rose)':'var(--text-2)'}">${S.esc(NexCRM._firebaseDiag.projectId)}</strong><br>
+            API key loaded: <strong style="color:${NexCRM._firebaseDiag.looksLikePlaceholder?'var(--rose)':'var(--text-2)'}">${S.esc(NexCRM._firebaseDiag.apiKeyPreview)}</strong>
+            ${NexCRM._firebaseDiag.looksLikePlaceholder ? '<br><span style="color:var(--rose)">⚠️ This is still a placeholder — the real value was never injected.</span>' : ''}
+          </div>` : ''}
+          ${NexCRM._backend !== 'firebase' ? `
+          <div style="font-size:12px;color:var(--amber);margin-bottom:12px;line-height:1.7">
+            ⚠️ Not connected to Firebase — your data only lives in this browser (5-10 MB limit). If your GitHub Secrets are already set correctly, the most common cause is:
+            <strong>Settings → Pages → Source</strong> is set to <em>"Deploy from a branch"</em> instead of <strong>"GitHub Actions"</strong> — meaning the workflow that injects your secrets into <code style="font-family:monospace;background:var(--s100);padding:1px 5px;border-radius:4px">js/store.js</code> never actually runs. Also check the <strong>Actions</strong> tab for a successful "Deploy NexCRM to GitHub Pages" run <em>after</em> the secrets were added.
+          </div>` : ''}
           <p class="text-muted" style="font-size:13px;margin-bottom:14px;max-width:640px">
             If this browser previously ran on local storage (before a database was connected) and you're missing tickets, users, customers, or departments created back then, scan for that old data below. It never deletes anything — it only checks whether older records still exist in this browser and offers to merge them back in.
           </p>
-          <button class="btn btn-ghost btn-sm" onclick="NexCRM.Profile.scanLocalBackup()">${Ic('search',13)} Scan this browser for older data</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="NexCRM.Profile.scanLocalBackup()">${Ic('search',13)} Scan this browser for older data</button>
+            ${NexCRM._backend !== 'firebase' ? `<button class="btn btn-ghost btn-sm" style="color:var(--rose);border-color:rgba(244,63,94,0.3)" onclick="NexCRM.Profile.confirmClearLocalData()">${Ic('trash',13)} Clear stuck local data (frees storage)</button>` : ''}
+          </div>
         </div>
 
         <div class="card">
@@ -193,6 +206,18 @@ window.NexCRM = window.NexCRM || {};
     const parts = Object.entries(added).filter(([,v]) => v>0).map(([k,v]) => `${v} ${k}`);
     NexCRM.toast(`Recovered: ${parts.join(', ')}`, 'success');
     render();
+  }
+
+  function confirmClearLocalData() {
+    NexCRM.Utils.confirm(
+      `<strong style="color:var(--rose)">This deletes all NexCRM data in this browser's local storage</strong> — tickets, customers, departments, categories, and users saved here. Use this only to free up space when storage is full and you're not yet connected to Firebase, otherwise you will lose data with no way to recover it. Continue?`,
+      () => {
+        const n = NexCRM.Store._clearLocalData();
+        NexCRM.toast(`Cleared ${n} local storage keys. Reloading…`, 'success');
+        setTimeout(() => location.reload(), 1200);
+      },
+      'Clear local data', 'danger'
+    );
   }
 
   function openAvatarPicker() {
@@ -295,5 +320,5 @@ window.NexCRM = window.NexCRM || {};
     NexCRM.toast('Organisation settings saved','success');
   }
 
-  window.NexCRM.Profile={render,openAvatarPicker,setPresetAvatar,handleAvatarUpload,removeAvatar,saveProfile,changePassword,checkStrength,toggleNotif,saveOrgSettings,scanLocalBackup,mergeLocalBackup};
+  window.NexCRM.Profile={render,openAvatarPicker,setPresetAvatar,handleAvatarUpload,removeAvatar,saveProfile,changePassword,checkStrength,toggleNotif,saveOrgSettings,scanLocalBackup,mergeLocalBackup,confirmClearLocalData};
 })();
