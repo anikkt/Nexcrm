@@ -387,3 +387,7 @@ body.dark .toggle-switch { background: #334155; }
 /* ── Chart tooltip ── */
 .chart-tooltip { position: absolute; display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 9px 13px; font-size: 12px; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 10; min-width: 130px; }
 body.dark .chart-tooltip { background: #1e293b; border-color: #475569; }
+
+/* ── Progress bar (ticket generation, imports) ── */
+.prog-wrap { background: var(--s100); border-radius: 8px; overflow: hidden; width: 100%; }
+.prog-bar { height: 100%; background: linear-gradient(90deg, var(--primary), #8b5cf6); border-radius: 8px; transition: width 0.25s ease; }
