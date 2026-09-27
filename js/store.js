@@ -13,6 +13,14 @@ window.NexCRM = window.NexCRM || {};
     messagingSenderId: "__FIREBASE_MESSAGING_SENDER_ID__",
     appId:             "__FIREBASE_APP_ID__"
   };
+  // Safe, non-secret diagnostic so this can be verified from the UI without
+  // digging through source — projectId isn't sensitive, and the apiKey
+  // preview only shows enough characters to confirm it's not a placeholder.
+  window.NexCRM._firebaseDiag = {
+    projectId: FIREBASE_CONFIG.projectId,
+    apiKeyPreview: FIREBASE_CONFIG.apiKey ? FIREBASE_CONFIG.apiKey.slice(0,6) + '…' : '(empty)',
+    looksLikePlaceholder: FIREBASE_CONFIG.apiKey.startsWith('__') || FIREBASE_CONFIG.apiKey.startsWith('PASTE_'),
+  };
   // ═══════════════════════════════════════════════════════════════════════════
 
   const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -519,6 +527,19 @@ window.NexCRM = window.NexCRM || {};
     return added;
   }
 
+  // Wipes every NexCRM key from this browser's localStorage — an escape
+  // hatch for when local storage is full and Firebase isn't connected yet.
+  // Does not touch Firestore; only clears this browser's own copy.
+  function _clearLocalData() {
+    const keys = Object.values(K);
+    let cleared = 0;
+    for (const k of keys) {
+      if (localStorage.getItem(k) !== null) { localStorage.removeItem(k); cleared++; }
+    }
+    localStorage.removeItem('ncm_session');
+    return cleared;
+  }
+
   // ── Choose backend ─────────────────────────────────────────────────────────
   const FIREBASE_OK = !FIREBASE_CONFIG.apiKey.startsWith('__') && !FIREBASE_CONFIG.apiKey.startsWith('PASTE_');
   if (!FIREBASE_OK) {
@@ -531,7 +552,7 @@ window.NexCRM = window.NexCRM || {};
       .catch(e=>{if(!resolved){resolved=true;clearTimeout(fallback);console.warn('[NexCRM] Firebase error → localStorage',e.message);_initLS();}});
   }
 
-  window.NexCRM.Store={Users,Tickets,Customers,Notifications,Settings,Departments,TicketCategories,ImportedEvents,_scanLocalBackup,_mergeLocalBackup};
+  window.NexCRM.Store={Users,Tickets,Customers,Notifications,Settings,Departments,TicketCategories,ImportedEvents,_scanLocalBackup,_mergeLocalBackup,_clearLocalData};
   window.NexCRM._ready=_ready;
   window.NexCRM._uid=uid;
   window.NexCRM._now=now;
