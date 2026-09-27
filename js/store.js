@@ -46,6 +46,7 @@ window.NexCRM = window.NexCRM || {};
   let _resolve;
   const _ready = new Promise(r => { _resolve = r; });
   let _save = () => {};
+  let _saveAwaitable = async () => {};
 
   const K = {
     U:'ncm_users', T:'ncm_tickets', C:'ncm_customers',
@@ -249,6 +250,10 @@ window.NexCRM = window.NexCRM || {};
       C.tickets = C.tickets.map(t => t.changeLog ? t : { ...t, changeLog:[] });
     }
     _save = _lsSave;
+    // Awaitable variant used by bulk operations — errors propagate instead
+    // of being swallowed, so callers doing a batch import can actually see
+    // and report a real failure instead of a false "success".
+    _saveAwaitable = async (doc, data) => { _lsSave(doc, data); };
     ['users','tickets','customers','notifications','settings','departments','ticket_cats','imported_events'].forEach(doc => {
       const d={users:{items:C.users},tickets:{items:C.tickets,seq:C.tSeq},customers:{items:C.customers,seq:C.cSeq},notifications:{items:C.notifications},settings:C.settings,departments:{items:C.departments,seq:C.depSeq},ticket_cats:{items:C.categories,seq:C.catSeq},imported_events:{items:C.importedEvents}}[doc];
       if(d) _lsSave(doc,d);
@@ -263,6 +268,10 @@ window.NexCRM = window.NexCRM || {};
     if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     const db=firebase.firestore(), COL=db.collection('nexcrm');
     _save=(doc,data)=>COL.doc(doc).set(data).catch(e=>console.warn('[Firestore]',doc,e));
+    // No .catch() here — rejections propagate to the caller (used by bulk
+    // operations so a real Firestore error, e.g. document-too-large, is
+    // visible instead of silently discarded).
+    _saveAwaitable = (doc, data) => COL.doc(doc).set(data);
 
     const check = await COL.doc('users').get();
     if (!check.exists) {
@@ -303,19 +312,33 @@ window.NexCRM = window.NexCRM || {};
     get(id)        {return C.users.find(u=>u.id===id)||null;},
     getByEmail(em) {return C.users.find(u=>u.email?.toLowerCase()===em?.toLowerCase())||null;},
     create(data)   {const u={...data,id:uid(),createdAt:now(),active:true,notifPrefs:{assigned:true,statusUpdates:true,newCustomer:false,mentions:true,systemAlerts:true,weeklyDigest:false}};C.users.push(u);_save('users',{items:C.users});return u;},
-    bulkCreate(items) {
+    async bulkCreate(items) {
       const created = items.map(data => ({
         ...data, id:uid(), createdAt:now(),
         active: data.active !== undefined ? data.active : true,
         notifPrefs: data.notifPrefs || { assigned:true, statusUpdates:true, newCustomer:false, mentions:true, systemAlerts:true, weeklyDigest:false },
       }));
+      const prevUsers = C.users;
       C.users = [...C.users, ...created];
-      _save('users', { items:C.users });
+      try { await _saveAwaitable('users', { items:C.users }); }
+      catch (e) { C.users = prevUsers; throw e; }
       return created;
     },
     update(id,data){const i=C.users.findIndex(u=>u.id===id);if(i<0)return null;C.users[i]={...C.users[i],...data};_save('users',{items:C.users});return C.users[i];},
     delete(id)     {C.users=C.users.filter(u=>u.id!==id);_save('users',{items:C.users});},
   };
+
+  // Always computed fresh from the actual tickets in memory — never trusts
+  // a separately-tracked counter, which can drift out of sync if a write
+  // to Firestore silently fails and a later refresh reverts local state.
+  function _nextTicketNumber() {
+    let max = 0;
+    for (const t of C.tickets) {
+      const m = /^TK-(\d+)$/.exec(t.number || '');
+      if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+    }
+    return max + 1;
+  }
 
   const Tickets = {
     getAll()       {return[...C.tickets];},
@@ -323,12 +346,13 @@ window.NexCRM = window.NexCRM || {};
 
     create(data) {
       const { _editedBy, ...ticketData } = data;   // strip internal prop before Firestore save
-      C.tSeq++;
+      const nextNum = _nextTicketNumber();
+      C.tSeq = nextNum;
       const userId = _editedBy || _sessionUser();
       const ts = now();
       const t = {
         ...ticketData,
-        id:uid(), number:`TK-${String(C.tSeq).padStart(3,'0')}`,
+        id:uid(), number:`TK-${String(nextNum).padStart(3,'0')}`,
         createdAt:ts, updatedAt:ts, comments:[],
         changeLog: _initialCL({...ticketData, createdAt:ts}, userId),
       };
@@ -354,7 +378,9 @@ window.NexCRM = window.NexCRM || {};
     // Firestore write at the end, instead of one write per ticket. This avoids
     // rapid overlapping writes to the same document racing against incoming
     // snapshot listeners (which was silently dropping/losing created records).
-    bulkImport(items) {
+    // Awaits the actual save and rolls back local state if it fails, so the
+    // caller sees a real error instead of a false "success".
+    async bulkImport(items) {
       const existingNumbers = new Set(C.tickets.map(t => t.number));
       const created = [];
       for (const data of items) {
@@ -365,8 +391,10 @@ window.NexCRM = window.NexCRM || {};
         const m = /^TK-(\d+)$/.exec(data.number || '');
         if (m) { const n = parseInt(m[1], 10); if (n > C.tSeq) C.tSeq = n; }
       }
+      const prevTickets = C.tickets, prevSeq = C.tSeq;
       C.tickets = [...C.tickets, ...created];
-      _save('tickets', { items: C.tickets, seq: C.tSeq });
+      try { await _saveAwaitable('tickets', { items: C.tickets, seq: C.tSeq }); }
+      catch (e) { C.tickets = prevTickets; C.tSeq = prevSeq; throw e; }
       return created;
     },
 
@@ -408,10 +436,12 @@ window.NexCRM = window.NexCRM || {};
     getAll()       {return[...C.customers];},
     get(id)        {return C.customers.find(c=>c.id===id)||null;},
     create(data)   {C.cSeq++;const c={...data,id:uid(),custNumber:`C-${String(C.cSeq).padStart(3,'0')}`,createdAt:now()};C.customers.push(c);_save('customers',{items:C.customers,seq:C.cSeq});return c;},
-    bulkCreate(items) {
+    async bulkCreate(items) {
       const created = items.map(data => { C.cSeq++; return { ...data, id:uid(), custNumber:`C-${String(C.cSeq).padStart(3,'0')}`, createdAt:now() }; });
+      const prevCustomers = C.customers, prevSeq = C.cSeq;
       C.customers = [...C.customers, ...created];
-      _save('customers', { items:C.customers, seq:C.cSeq });
+      try { await _saveAwaitable('customers', { items:C.customers, seq:C.cSeq }); }
+      catch (e) { C.customers = prevCustomers; C.cSeq = prevSeq; throw e; }
       return created;
     },
     update(id,data){const i=C.customers.findIndex(c=>c.id===id);if(i<0)return null;C.customers[i]={...C.customers[i],...data};_save('customers',{items:C.customers,seq:C.cSeq});return C.customers[i];},
@@ -442,10 +472,12 @@ window.NexCRM = window.NexCRM || {};
     create(data)   {C.depSeq++;const d={...data,id:uid(),createdAt:now()};C.departments.push(d);_save('departments',{items:C.departments,seq:C.depSeq});return d;},
     // Creates many at once with a single Firestore write (avoids rapid-fire
     // per-item saves racing against incoming snapshot listeners).
-    bulkCreate(items) {
+    async bulkCreate(items) {
       const created = items.map(data => { C.depSeq++; return { ...data, id:uid(), createdAt:now() }; });
+      const prevDepts = C.departments, prevSeq = C.depSeq;
       C.departments = [...C.departments, ...created];
-      _save('departments', { items:C.departments, seq:C.depSeq });
+      try { await _saveAwaitable('departments', { items:C.departments, seq:C.depSeq }); }
+      catch (e) { C.departments = prevDepts; C.depSeq = prevSeq; throw e; }
       return created;
     },
     update(id,data){const i=C.departments.findIndex(d=>d.id===id);if(i<0)return null;C.departments[i]={...C.departments[i],...data};_save('departments',{items:C.departments,seq:C.depSeq});return C.departments[i];},
@@ -456,10 +488,12 @@ window.NexCRM = window.NexCRM || {};
     getAll()       {return[...C.categories];},
     get(id)        {return C.categories.find(c=>c.id===id)||null;},
     create(data)   {C.catSeq++;const c={...data,id:uid(),createdAt:now()};C.categories.push(c);_save('ticket_cats',{items:C.categories,seq:C.catSeq});return c;},
-    bulkCreate(items) {
+    async bulkCreate(items) {
       const created = items.map(data => { C.catSeq++; return { ...data, id:uid(), createdAt:now() }; });
+      const prevCats = C.categories, prevSeq = C.catSeq;
       C.categories = [...C.categories, ...created];
-      _save('ticket_cats', { items:C.categories, seq:C.catSeq });
+      try { await _saveAwaitable('ticket_cats', { items:C.categories, seq:C.catSeq }); }
+      catch (e) { C.categories = prevCats; C.catSeq = prevSeq; throw e; }
       return created;
     },
     update(id,data){const i=C.categories.findIndex(c=>c.id===id);if(i<0)return null;C.categories[i]={...C.categories[i],...data};_save('ticket_cats',{items:C.categories,seq:C.catSeq});return C.categories[i];},
