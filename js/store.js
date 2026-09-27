@@ -18,7 +18,16 @@ window.NexCRM = window.NexCRM || {};
   const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
   const now  = () => new Date().toISOString();
   const load = (k,d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-  const lset = (k,v) => localStorage.setItem(k, JSON.stringify(v));
+  const lset = (k,v) => {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch (e) {
+      if (e && (e.name === 'QuotaExceededError' || e.code === 22)) {
+        throw new Error(`Browser storage is full (tried to save "${k}"). This app is currently running on local browser storage instead of a connected database. Check that the Firebase config in js/store.js has real values (not placeholders), or reduce how much data you're importing/generating at once.`);
+      }
+      throw e;
+    }
+  };
 
   const C = {
     users:[], tickets:[], customers:[], notifications:[], settings:{},
@@ -237,6 +246,7 @@ window.NexCRM = window.NexCRM || {};
       if(d) _lsSave(doc,d);
     });
     _resolve();
+    window.NexCRM._backend = 'localStorage';
     console.log('[NexCRM] Using localStorage.');
   }
 
@@ -268,6 +278,7 @@ window.NexCRM = window.NexCRM || {};
       if(migrated) _save('tickets',{items:C.tickets,seq:C.tSeq});
     }
     _resolve();
+    window.NexCRM._backend = 'firebase';
     console.log('[NexCRM] Connected to Firebase.');
     COL.doc('tickets').onSnapshot(d=>{if(!d.exists)return;C.tickets=d.data().items||[];C.tSeq=d.data().seq||0;NexCRM._onDataUpdate?.();});
     COL.doc('customers').onSnapshot(d=>{if(!d.exists)return;C.customers=d.data().items||[];C.cSeq=d.data().seq||0;NexCRM._onDataUpdate?.();});
