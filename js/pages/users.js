@@ -12,7 +12,7 @@ window.NexCRM = window.NexCRM || {};
     // Redirect non-admins/managers
     if (!NexCRM.Auth.isAdmin() && !NexCRM.Auth.isManager()) { location.hash = '#dashboard'; return; }
     NexCRM.Layout.renderTopbar('Users');
-    NexCRM.Layout.renderSidebar();
+    NexCRM.Layout.renderSidebar('users');
     const S = NexCRM.Utils;
     const currentUser = NexCRM.Auth.getUser();
     const users = NexCRM.Store.Users.getAll();
@@ -36,8 +36,9 @@ window.NexCRM = window.NexCRM || {};
           </div>
           ${NexCRM.Auth.isAdmin() ? `
           <div style="display:flex;gap:4px;flex-shrink:0" onclick="event.stopPropagation()">
-            <button class="icon-btn" onclick="NexCRM.Users.openEditModal('${u.id}')" title="Edit">✏️</button>
+            <button class="icon-btn" onclick="NexCRM.Users.openEditModal('${u.id}')" title="Edit">${NexCRM.icon('edit',14)}</button>
             ${!isSelf ? `<button class="icon-btn" onclick="NexCRM.Users.toggleActive('${u.id}','${S.esc(u.name)}',${u.active})" title="${u.active?'Deactivate':'Activate'}">${u.active?'🔒':'🔓'}</button>` : ''}
+            ${!isSelf ? `<button class="icon-btn danger" onclick="NexCRM.Users.confirmDelete('${u.id}','${S.esc(u.name)}','${u.role}')" title="Delete user">${NexCRM.icon('trash',14)}</button>` : ''}
           </div>` : ''}
         </div>`;
     }).join('');
@@ -77,8 +78,9 @@ window.NexCRM = window.NexCRM || {};
 
   function _userForm(u, isNew) {
     const S = NexCRM.Utils;
-    const depts = NexCRM.Store.Settings.get().departments || [];
-    const deptOpts = depts.map(d => `<option value="${d}" ${u&&u.department===d?'selected':''}>${S.esc(d)}</option>`).join('');
+    const isAdmin = NexCRM.Auth.isAdmin();
+    const depts = NexCRM.Store.Departments.getAll();
+    const deptOpts = depts.map(d => `<option value="${S.esc(d.name)}" ${u&&u.department===d.name?'selected':''}>${S.esc(d.name)}</option>`).join('');
     const roleOpts = Object.entries(ROLES).map(([k,v]) => `<option value="${k}" ${u&&u.role===k?'selected':''}>${v.l} — ${v.desc}</option>`).join('');
     return `<div class="form-grid">
       <div class="form-field"><label>Full name <span class="required">*</span></label><input type="text" id="fu-name" class="input" value="${u?S.esc(u.name):''}" placeholder="First and last name"></div>
@@ -87,6 +89,15 @@ window.NexCRM = window.NexCRM || {};
       <div class="form-field"><label>Role <span class="required">*</span></label><select id="fu-role" class="input" style="font-size:12px">${roleOpts}</select></div>
       <div class="form-field"><label>Department</label><select id="fu-dept" class="input"><option value="">— None —</option>${deptOpts}</select></div>
       <div class="form-field"><label>Phone</label><input type="tel" id="fu-phone" class="input" value="${u?S.esc(u.phone||''):''}" placeholder="+1 555 000 0000"></div>
+      ${!isNew && isAdmin ? `
+      <div class="form-field full-width" style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+        <label>Reset password <span style="font-size:11px;color:var(--text-3);font-weight:400">— sets their password directly, admin only</span></label>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <input type="text" id="fu-new-pwd" class="input" placeholder="Leave blank to keep current password" style="flex:1">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('fu-new-pwd').value=NexCRM.Users._genPwd()" style="flex-shrink:0;white-space:nowrap">Generate</button>
+        </div>
+        <div class="form-help">If filled in, this replaces their password immediately — share it with them directly.</div>
+      </div>` : ''}
     </div>`;
   }
 
@@ -132,10 +143,13 @@ window.NexCRM = window.NexCRM || {};
     const role  = document.getElementById('fu-role')?.value;
     const dept  = document.getElementById('fu-dept')?.value || '';
     const phone = document.getElementById('fu-phone')?.value.trim() || '';
+    const newPwd = document.getElementById('fu-new-pwd')?.value.trim();
     if (!name) { NexCRM.toast('Name is required', 'error'); return; }
-    NexCRM.Store.Users.update(id, { name, role, department: dept, phone });
+    const patch = { name, role, department: dept, phone };
+    if (newPwd) patch.password = newPwd;
+    NexCRM.Store.Users.update(id, patch);
     NexCRM.Utils.closeModal();
-    NexCRM.toast('User updated', 'success');
+    NexCRM.toast(newPwd ? 'User updated and password reset' : 'User updated', 'success');
     render();
   }
 
@@ -148,5 +162,27 @@ window.NexCRM = window.NexCRM || {};
     }, action.charAt(0).toUpperCase()+action.slice(1), current ? 'danger' : 'primary');
   }
 
-  window.NexCRM.Users = { render, openCreateModal, openEditModal, create, update, toggleActive };
+  function confirmDelete(id, name, role) {
+    const users = NexCRM.Store.Users.getAll();
+    const activeAdmins = users.filter(u => u.role === 'admin' && u.active);
+    if (role === 'admin' && activeAdmins.length <= 1) {
+      NexCRM.toast('Cannot delete the only remaining admin', 'error');
+      return;
+    }
+    const assignedCount = NexCRM.Store.Tickets.getAll().filter(t => t.assignedToId === id).length;
+    const warnLine = assignedCount
+      ? `<br><br><span style="color:var(--amber)">⚠️ ${assignedCount} ticket${assignedCount!==1?'s are':' is'} currently assigned to them — they'll be left assigned to this now-deleted user.</span>`
+      : '';
+    NexCRM.Utils.confirm(
+      `Permanently delete <strong>${name}</strong>? This cannot be undone.${warnLine}`,
+      () => {
+        NexCRM.Store.Users.delete(id);
+        NexCRM.toast(`${name} deleted`, 'success');
+        render();
+      },
+      'Delete user', 'danger'
+    );
+  }
+
+  window.NexCRM.Users = { render, openCreateModal, openEditModal, create, update, toggleActive, confirmDelete, _genPwd };
 })();
