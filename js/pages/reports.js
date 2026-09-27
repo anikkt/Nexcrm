@@ -674,81 +674,107 @@ window.NexCRM = window.NexCRM || {};
   const _yield = () => new Promise(r => setTimeout(r, 0));
 
   async function runGeneration() {
-    const plan = _planGeneration();
-    const total = plan.newDepartments.length + plan.newCategories.length + plan.newAgents.length + plan.newCustomers.length + plan.toCreate.length;
-    let done = 0;
-    const bump = (label) => { done++; _renderProgress(done, total, label); };
+    try {
+      const plan = _planGeneration();
+      const total = plan.newDepartments.length + plan.newCategories.length + plan.newAgents.length + plan.newCustomers.length + plan.toCreate.length;
+      let done = 0;
+      const bump = (label) => { done++; _renderProgress(done, total, label); };
 
-    _renderProgress(0, total, 'Preparing…');
-    await _yield();
+      _renderProgress(0, total, 'Preparing…');
+      await _yield();
 
-    // 1) Departments
-    const deptNameToId = {};
-    let i = 0;
-    for (const name of plan.newDepartments) {
-      const d = NexCRM.Store.Departments.create({ name, description:'Auto-created from imported event log.', color:_colorFor(i++) });
-      deptNameToId[name.toLowerCase()] = d.id;
-      bump(`Creating departments… "${name}"`);
+      // Each phase below does ONE Firestore write for the whole batch —
+      // not one write per item — so rapid overlapping saves can't race
+      // against incoming snapshot updates and silently drop records.
+
+      // 1) Departments
+      const deptNameToId = {};
+      if (plan.newDepartments.length) {
+        for (const name of plan.newDepartments) { bump(`Preparing departments… "${name}"`); await _yield(); }
+        const items = plan.newDepartments.map((name,i) => ({ name, description:'Auto-created from imported event log.', color:_colorFor(i) }));
+        const created = NexCRM.Store.Departments.bulkCreate(items);
+        created.forEach(d => { deptNameToId[d.name.toLowerCase()] = d.id; });
+      }
+
+      // 2) Categories
+      const catNameToId = {};
+      if (plan.newCategories.length) {
+        for (const name of plan.newCategories) { bump(`Preparing categories… "${name}"`); await _yield(); }
+        const items = plan.newCategories.map((name,i) => ({ name, description:'Auto-created from imported event log.', color:_colorFor(i) }));
+        const created = NexCRM.Store.TicketCategories.bulkCreate(items);
+        created.forEach(c => { catNameToId[c.name.toLowerCase()] = c.id; });
+      }
+
+      // 3) Agents — inactive placeholder profiles, no usable password
+      const agentNameToId = {};
+      if (plan.newAgents.length) {
+        for (const name of plan.newAgents) { bump(`Preparing agent profiles… "${name}"`); await _yield(); }
+        const items = plan.newAgents.map(name => {
+          const emailSafe = name.toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'');
+          return { name, email:`${emailSafe}.imported@nexcrm.local`, password: NexCRM._uid()+NexCRM._uid(), role:'user', department:'', phone:'', active:false };
+        });
+        const created = NexCRM.Store.Users.bulkCreate(items);
+        created.forEach(u => { agentNameToId[u.name.toLowerCase()] = u.id; });
+      }
+
+      // 4) Customers
+      const custNameToId = {};
+      if (plan.newCustomers.length) {
+        for (const c of plan.newCustomers) { bump(`Preparing customers… "${c.name}"`); await _yield(); }
+        const items = plan.newCustomers.map(c => ({ name:c.name, company:c.company, email:'', phone:'', industry:'', status:'active', notes:'Auto-created while generating tickets from an imported event log.' }));
+        const created = NexCRM.Store.Customers.bulkCreate(items);
+        created.forEach(c => { custNameToId[c.name.toLowerCase()] = c.id; });
+      }
+
+      // 5) Build ticket objects (resolving pending names to the IDs just created), then one bulk write
+      const ticketObjs = [];
+      let buildErrors = 0;
+      for (const t of plan.toCreate) {
+        try {
+          const departmentId = t.departmentId || (t._pendingDeptName ? deptNameToId[t._pendingDeptName.toLowerCase()] : null) || null;
+          const categoryId   = t.categoryId   || (t._pendingCatName  ? catNameToId[t._pendingCatName.toLowerCase()]   : null) || null;
+          const customerId   = t.customerId   || (t._pendingCustomerName ? custNameToId[t._pendingCustomerName.toLowerCase()] : null) || null;
+          const assignedToId = t.assignedToId || (t._pendingAgentName ? agentNameToId[t._pendingAgentName.toLowerCase()] : null) || null;
+          const changeLog = t.changeLog.map(cl => {
+            const { _pendingAgentName, ...clRest } = cl;
+            if (!clRest.editedById && _pendingAgentName) clRest.editedById = agentNameToId[_pendingAgentName.toLowerCase()] || null;
+            return clRest;
+          });
+          const { _pendingCustomerName, _pendingDeptName, _pendingCatName, _pendingAgentName, changeLog:_old, ...rest } = t;
+          ticketObjs.push({ ...rest, departmentId, categoryId, customerId, assignedToId, changeLog, comments: [] });
+        } catch (err) {
+          console.error('Skipping ticket while preparing:', t.number, err);
+          buildErrors++;
+        }
+        bump(`Preparing tickets… ${t.number}`);
+        await _yield();
+      }
+
+      _renderProgress(total, total, 'Saving to database…');
       await _yield();
-    }
-    // 2) Categories
-    const catNameToId = {};
-    i = 0;
-    for (const name of plan.newCategories) {
-      const c = NexCRM.Store.TicketCategories.create({ name, description:'Auto-created from imported event log.', color:_colorFor(i++) });
-      catNameToId[name.toLowerCase()] = c.id;
-      bump(`Creating categories… "${name}"`);
-      await _yield();
-    }
-    // 3) Agents (inactive placeholder profiles — no usable password)
-    const agentNameToId = {};
-    for (const name of plan.newAgents) {
-      const emailSafe = name.toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'');
-      const u = NexCRM.Store.Users.create({
-        name, email: `${emailSafe}.imported@nexcrm.local`,
-        password: NexCRM._uid() + NexCRM._uid(),  // random, never shared — not a usable login
-        role: 'user', department: '', phone: '',
+      const createdTicketsArr = NexCRM.Store.Tickets.bulkImport(ticketObjs);
+
+      _renderDone({
+        tickets: createdTicketsArr.length,
+        skipped: plan.skipExisting.length + buildErrors,
+        customers: plan.newCustomers.length,
+        departments: plan.newDepartments.length,
+        categories: plan.newCategories.length,
+        agents: plan.newAgents.length,
       });
-      NexCRM.Store.Users.update(u.id, { active:false });
-      agentNameToId[name.toLowerCase()] = u.id;
-      bump(`Creating agent profiles… "${name}"`);
-      await _yield();
+    } catch (err) {
+      console.error('Ticket generation failed:', err);
+      const Ic = NexCRM.icon;
+      const body = document.getElementById('modal-body');
+      const footer = document.getElementById('modal-footer');
+      if (body) body.innerHTML = `
+        <div style="text-align:center;padding:16px 10px">
+          <div style="color:var(--rose);margin-bottom:12px">${Ic('alert_t',36)}</div>
+          <p style="font-size:13px;color:var(--text-2);margin-bottom:10px">Something went wrong while generating tickets. Nothing further was created past this point — anything created before the error is already saved.</p>
+          <p style="font-size:11px;color:var(--text-3);font-family:monospace;background:var(--s50);padding:8px 10px;border-radius:6px;text-align:left;overflow-x:auto">${String(err && err.message ? err.message : err).replace(/</g,'&lt;')}</p>
+        </div>`;
+      if (footer) footer.innerHTML = `<button class="btn btn-primary" onclick="NexCRM.Utils.closeModal()">Close</button>`;
     }
-    // 4) Customers
-    const custNameToId = {};
-    for (const c of plan.newCustomers) {
-      const created = NexCRM.Store.Customers.create({ name:c.name, company:c.company, email:'', phone:'', industry:'', status:'active', notes:'Auto-created while generating tickets from an imported event log.' });
-      custNameToId[c.name.toLowerCase()] = created.id;
-      bump(`Creating customers… "${c.name}"`);
-      await _yield();
-    }
-    // 5) Tickets
-    let createdTickets = 0;
-    for (const t of plan.toCreate) {
-      const departmentId = t.departmentId || (t._pendingDeptName ? deptNameToId[t._pendingDeptName.toLowerCase()] : null) || null;
-      const categoryId   = t.categoryId   || (t._pendingCatName  ? catNameToId[t._pendingCatName.toLowerCase()]   : null) || null;
-      const customerId   = t.customerId   || (t._pendingCustomerName ? custNameToId[t._pendingCustomerName.toLowerCase()] : null) || null;
-      const assignedToId = t.assignedToId || (t._pendingAgentName ? agentNameToId[t._pendingAgentName.toLowerCase()] : null) || null;
-      const changeLog = t.changeLog.map(cl => {
-        const { _pendingAgentName, ...clRest } = cl;
-        if (!clRest.editedById && _pendingAgentName) clRest.editedById = agentNameToId[_pendingAgentName.toLowerCase()] || null;
-        return clRest;
-      });
-      const { _pendingCustomerName, _pendingDeptName, _pendingCatName, _pendingAgentName, ...ticketData } = t;
-      const result = NexCRM.Store.Tickets.createFromImport({ ...ticketData, departmentId, categoryId, customerId, assignedToId, changeLog, comments: [] });
-      if (result) createdTickets++;
-      bump(`Creating tickets… ${t.number}`);
-      await _yield();
-    }
-
-    _renderDone({
-      tickets: createdTickets,
-      skipped: plan.skipExisting.length,
-      customers: plan.newCustomers.length,
-      departments: plan.newDepartments.length,
-      categories: plan.newCategories.length,
-      agents: plan.newAgents.length,
-    });
   }
 
   function exportSummary() {
