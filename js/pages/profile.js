@@ -108,6 +108,13 @@ window.NexCRM = window.NexCRM || {};
         ${isAdmin?`
         <div class="card" style="border-color:rgba(245,158,11,0.4);background:rgba(245,158,11,0.04)">
           <div class="card-title" style="margin-bottom:6px">${Ic('alert_c',15)} Data recovery <span style="font-size:11px;color:var(--primary);margin-left:8px;font-weight:400">Admin only</span></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <span style="font-size:12px;color:var(--text-3)">Current storage backend:</span>
+            ${NexCRM._backend === 'firebase'
+              ? `<span class="badge" style="background:#ecfdf5;color:#065f46">${Ic('check_c',11)} Firebase (shared, synced)</span>`
+              : `<span class="badge" style="background:#fff7ed;color:#c2410c">${Ic('alert_t',11)} Local browser storage only</span>`}
+          </div>
+          ${NexCRM._backend !== 'firebase' ? `<p style="font-size:12px;color:var(--amber);margin-bottom:12px;line-height:1.6">⚠️ Not connected to Firebase — your data only lives in this browser and has a small storage limit (5-10 MB). Large imports or bulk ticket generation can exceed it. Check that the Firebase config in <code style="font-family:monospace;background:var(--s50);padding:1px 5px;border-radius:4px">js/store.js</code> has real values, not placeholders.</p>` : ''}
           <p class="text-muted" style="font-size:13px;margin-bottom:14px;max-width:640px">
             If this browser previously ran on local storage (before a database was connected) and you're missing tickets, users, customers, or departments created back then, scan for that old data below. It never deletes anything — it only checks whether older records still exist in this browser and offers to merge them back in.
           </p>
