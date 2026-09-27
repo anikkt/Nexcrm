@@ -709,7 +709,7 @@ window.NexCRM = window.NexCRM || {};
       if (autoCreateAux && plan.newDepartments.length) {
         for (const name of plan.newDepartments) { bump(`Preparing departments… "${name}"`); await _yield(); }
         const items = plan.newDepartments.map((name,i) => ({ name, description:'Auto-created from imported event log.', color:_colorFor(i) }));
-        const created = NexCRM.Store.Departments.bulkCreate(items);
+        const created = await NexCRM.Store.Departments.bulkCreate(items);
         created.forEach(d => { deptNameToId[d.name.toLowerCase()] = d.id; });
       }
 
@@ -718,7 +718,7 @@ window.NexCRM = window.NexCRM || {};
       if (autoCreateAux && plan.newCategories.length) {
         for (const name of plan.newCategories) { bump(`Preparing categories… "${name}"`); await _yield(); }
         const items = plan.newCategories.map((name,i) => ({ name, description:'Auto-created from imported event log.', color:_colorFor(i) }));
-        const created = NexCRM.Store.TicketCategories.bulkCreate(items);
+        const created = await NexCRM.Store.TicketCategories.bulkCreate(items);
         created.forEach(c => { catNameToId[c.name.toLowerCase()] = c.id; });
       }
 
@@ -730,7 +730,7 @@ window.NexCRM = window.NexCRM || {};
           const emailSafe = name.toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'');
           return { name, email:`${emailSafe}.imported@nexcrm.local`, password: NexCRM._uid()+NexCRM._uid(), role:'user', department:'', phone:'', active:false };
         });
-        const created = NexCRM.Store.Users.bulkCreate(items);
+        const created = await NexCRM.Store.Users.bulkCreate(items);
         created.forEach(u => { agentNameToId[u.name.toLowerCase()] = u.id; });
       }
 
@@ -739,7 +739,7 @@ window.NexCRM = window.NexCRM || {};
       if (plan.newCustomers.length) {
         for (const c of plan.newCustomers) { bump(`Preparing customers… "${c.name}"`); await _yield(); }
         const items = plan.newCustomers.map(c => ({ name:c.name, company:c.company, email:'', phone:'', industry:'', status:'active', notes:'Auto-created while generating tickets from an imported event log.' }));
-        const created = NexCRM.Store.Customers.bulkCreate(items);
+        const created = await NexCRM.Store.Customers.bulkCreate(items);
         created.forEach(c => { custNameToId[c.name.toLowerCase()] = c.id; });
       }
 
@@ -769,7 +769,7 @@ window.NexCRM = window.NexCRM || {};
 
       _renderProgress(total, total, 'Saving to database…');
       await _yield();
-      const createdTicketsArr = NexCRM.Store.Tickets.bulkImport(ticketObjs);
+      const createdTicketsArr = await NexCRM.Store.Tickets.bulkImport(ticketObjs);
 
       _renderDone({
         tickets: createdTicketsArr.length,
