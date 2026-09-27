@@ -609,6 +609,9 @@ window.NexCRM = window.NexCRM || {};
 
     const chip = (n, label, color) => `<div style="background:var(--s50);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:${color||'var(--text)'}">${n}</div><div style="font-size:10px;color:var(--text-3);margin-top:2px">${label}</div></div>`;
 
+    const auxTotal = plan.newDepartments.length + plan.newCategories.length + plan.newAgents.length;
+    const suspiciouslyHigh = auxTotal > 15;
+
     const body = `
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
         ${chip(plan.toCreate.length, 'Tickets to create', 'var(--primary)')}
@@ -618,17 +621,30 @@ window.NexCRM = window.NexCRM || {};
         ${chip(plan.newCategories.length, 'New categories', '#06b6d4')}
         ${chip(plan.newAgents.length, 'New agent profiles', '#10b981')}
       </div>
+      ${suspiciouslyHigh ? `
+      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:600;color:#c2410c;margin-bottom:4px">⚠️ Unusually high count (${auxTotal} new departments/categories/agents combined)</div>
+        <div style="font-size:12px;color:#9a3412;line-height:1.6">This often means a column in your CSV doesn't line up with what NexCRM expects (Department, Category, Case Owner). Double-check your file's headers, or uncheck auto-create below and review afterward.</div>
+      </div>` : ''}
       <p style="font-size:13px;color:var(--s600);line-height:1.6;margin-bottom:8px">
         Any department, category, customer, or agent named in the log that doesn't already exist will be created automatically — same as customers already were. Agent profiles are created as inactive placeholder accounts (no usable password) purely so "Assigned to" and change-history entries display the right name.
       </p>
-      ${plan.newDepartments.length?`<div style="margin-top:8px;font-size:12px;color:var(--text-2)"><strong style="color:#8b5cf6">Departments:</strong> ${plan.newDepartments.map(S.esc).join(', ')}</div>`:''}
-      ${plan.newCategories.length?`<div style="margin-top:4px;font-size:12px;color:var(--text-2)"><strong style="color:#06b6d4">Categories:</strong> ${plan.newCategories.map(S.esc).join(', ')}</div>`:''}
-      ${plan.newAgents.length?`<div style="margin-top:4px;font-size:12px;color:var(--text-2)"><strong style="color:#10b981">Agents:</strong> ${plan.newAgents.map(S.esc).join(', ')}</div>`:''}
+      ${plan.newDepartments.length?`<div style="margin-top:8px;font-size:12px;color:var(--text-2)"><strong style="color:#8b5cf6">Departments:</strong> ${plan.newDepartments.slice(0,20).map(S.esc).join(', ')}${plan.newDepartments.length>20?` +${plan.newDepartments.length-20} more`:''}</div>`:''}
+      ${plan.newCategories.length?`<div style="margin-top:4px;font-size:12px;color:var(--text-2)"><strong style="color:#06b6d4">Categories:</strong> ${plan.newCategories.slice(0,20).map(S.esc).join(', ')}${plan.newCategories.length>20?` +${plan.newCategories.length-20} more`:''}</div>`:''}
+      ${plan.newAgents.length?`<div style="margin-top:4px;font-size:12px;color:var(--text-2)"><strong style="color:#10b981">Agents:</strong> ${plan.newAgents.slice(0,20).map(S.esc).join(', ')}${plan.newAgents.length>20?` +${plan.newAgents.length-20} more`:''}</div>`:''}
+      ${auxTotal ? `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <label class="checkbox-label"><input type="checkbox" id="gen-autocreate" ${suspiciouslyHigh?'':'checked'}> Auto-create the missing departments, categories, and agent profiles listed above</label>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px;margin-left:22px">If unchecked, tickets are still created — they'll just be left without a department/category/assignee where the log named one that doesn't already exist.</div>
+      </div>` : ''}
     `;
 
     S.openModal('Generate tickets from event log', body,
       `<button class="btn btn-ghost" onclick="NexCRM.Utils.closeModal()">Cancel</button>
        <button class="btn btn-primary" onclick="NexCRM.Reports.runGeneration()" ${!plan.toCreate.length?'disabled':''}>${Ic('check_c',13)} Create ${plan.toCreate.length} ticket${plan.toCreate.length!==1?'s':''}</button>`, 'lg');
+  }
+  function _wantsAutoCreate() {
+    const cb = document.getElementById('gen-autocreate');
+    return cb ? cb.checked : true; // no checkbox rendered means nothing to auto-create, harmless default
   }
 
   // ── Progress UI helpers (reuse the already-open modal) ─────────────────────
@@ -674,9 +690,10 @@ window.NexCRM = window.NexCRM || {};
   const _yield = () => new Promise(r => setTimeout(r, 0));
 
   async function runGeneration() {
+    const autoCreateAux = _wantsAutoCreate();  // read before the modal body gets replaced below
     try {
       const plan = _planGeneration();
-      const total = plan.newDepartments.length + plan.newCategories.length + plan.newAgents.length + plan.newCustomers.length + plan.toCreate.length;
+      const total = (autoCreateAux ? (plan.newDepartments.length + plan.newCategories.length + plan.newAgents.length) : 0) + plan.newCustomers.length + plan.toCreate.length;
       let done = 0;
       const bump = (label) => { done++; _renderProgress(done, total, label); };
 
@@ -689,7 +706,7 @@ window.NexCRM = window.NexCRM || {};
 
       // 1) Departments
       const deptNameToId = {};
-      if (plan.newDepartments.length) {
+      if (autoCreateAux && plan.newDepartments.length) {
         for (const name of plan.newDepartments) { bump(`Preparing departments… "${name}"`); await _yield(); }
         const items = plan.newDepartments.map((name,i) => ({ name, description:'Auto-created from imported event log.', color:_colorFor(i) }));
         const created = NexCRM.Store.Departments.bulkCreate(items);
@@ -698,7 +715,7 @@ window.NexCRM = window.NexCRM || {};
 
       // 2) Categories
       const catNameToId = {};
-      if (plan.newCategories.length) {
+      if (autoCreateAux && plan.newCategories.length) {
         for (const name of plan.newCategories) { bump(`Preparing categories… "${name}"`); await _yield(); }
         const items = plan.newCategories.map((name,i) => ({ name, description:'Auto-created from imported event log.', color:_colorFor(i) }));
         const created = NexCRM.Store.TicketCategories.bulkCreate(items);
@@ -707,7 +724,7 @@ window.NexCRM = window.NexCRM || {};
 
       // 3) Agents — inactive placeholder profiles, no usable password
       const agentNameToId = {};
-      if (plan.newAgents.length) {
+      if (autoCreateAux && plan.newAgents.length) {
         for (const name of plan.newAgents) { bump(`Preparing agent profiles… "${name}"`); await _yield(); }
         const items = plan.newAgents.map(name => {
           const emailSafe = name.toLowerCase().replace(/[^a-z0-9]+/g,'.').replace(/^\.|\.$/g,'');
@@ -758,9 +775,9 @@ window.NexCRM = window.NexCRM || {};
         tickets: createdTicketsArr.length,
         skipped: plan.skipExisting.length + buildErrors,
         customers: plan.newCustomers.length,
-        departments: plan.newDepartments.length,
-        categories: plan.newCategories.length,
-        agents: plan.newAgents.length,
+        departments: autoCreateAux ? plan.newDepartments.length : 0,
+        categories: autoCreateAux ? plan.newCategories.length : 0,
+        agents: autoCreateAux ? plan.newAgents.length : 0,
       });
     } catch (err) {
       console.error('Ticket generation failed:', err);
