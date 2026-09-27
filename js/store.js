@@ -284,6 +284,16 @@ window.NexCRM = window.NexCRM || {};
     get(id)        {return C.users.find(u=>u.id===id)||null;},
     getByEmail(em) {return C.users.find(u=>u.email?.toLowerCase()===em?.toLowerCase())||null;},
     create(data)   {const u={...data,id:uid(),createdAt:now(),active:true,notifPrefs:{assigned:true,statusUpdates:true,newCustomer:false,mentions:true,systemAlerts:true,weeklyDigest:false}};C.users.push(u);_save('users',{items:C.users});return u;},
+    bulkCreate(items) {
+      const created = items.map(data => ({
+        ...data, id:uid(), createdAt:now(),
+        active: data.active !== undefined ? data.active : true,
+        notifPrefs: data.notifPrefs || { assigned:true, statusUpdates:true, newCustomer:false, mentions:true, systemAlerts:true, weeklyDigest:false },
+      }));
+      C.users = [...C.users, ...created];
+      _save('users', { items:C.users });
+      return created;
+    },
     update(id,data){const i=C.users.findIndex(u=>u.id===id);if(i<0)return null;C.users[i]={...C.users[i],...data};_save('users',{items:C.users});return C.users[i];},
     delete(id)     {C.users=C.users.filter(u=>u.id!==id);_save('users',{items:C.users});},
   };
@@ -319,6 +329,26 @@ window.NexCRM = window.NexCRM || {};
       if (m) { const n = parseInt(m[1], 10); if (n > C.tSeq) C.tSeq = n; }
       _save('tickets', { items: C.tickets, seq: C.tSeq });
       return t;
+    },
+
+    // Bulk version — imports many pre-built ticket objects with exactly ONE
+    // Firestore write at the end, instead of one write per ticket. This avoids
+    // rapid overlapping writes to the same document racing against incoming
+    // snapshot listeners (which was silently dropping/losing created records).
+    bulkImport(items) {
+      const existingNumbers = new Set(C.tickets.map(t => t.number));
+      const created = [];
+      for (const data of items) {
+        if (existingNumbers.has(data.number)) continue;
+        const t = { ...data, id: uid(), comments: data.comments || [], changeLog: data.changeLog || [] };
+        created.push(t);
+        existingNumbers.add(data.number);
+        const m = /^TK-(\d+)$/.exec(data.number || '');
+        if (m) { const n = parseInt(m[1], 10); if (n > C.tSeq) C.tSeq = n; }
+      }
+      C.tickets = [...C.tickets, ...created];
+      _save('tickets', { items: C.tickets, seq: C.tSeq });
+      return created;
     },
 
     update(id, data, editedBy) {
@@ -359,6 +389,12 @@ window.NexCRM = window.NexCRM || {};
     getAll()       {return[...C.customers];},
     get(id)        {return C.customers.find(c=>c.id===id)||null;},
     create(data)   {C.cSeq++;const c={...data,id:uid(),custNumber:`C-${String(C.cSeq).padStart(3,'0')}`,createdAt:now()};C.customers.push(c);_save('customers',{items:C.customers,seq:C.cSeq});return c;},
+    bulkCreate(items) {
+      const created = items.map(data => { C.cSeq++; return { ...data, id:uid(), custNumber:`C-${String(C.cSeq).padStart(3,'0')}`, createdAt:now() }; });
+      C.customers = [...C.customers, ...created];
+      _save('customers', { items:C.customers, seq:C.cSeq });
+      return created;
+    },
     update(id,data){const i=C.customers.findIndex(c=>c.id===id);if(i<0)return null;C.customers[i]={...C.customers[i],...data};_save('customers',{items:C.customers,seq:C.cSeq});return C.customers[i];},
     delete(id)     {C.customers=C.customers.filter(c=>c.id!==id);_save('customers',{items:C.customers,seq:C.cSeq});},
   };
@@ -385,6 +421,14 @@ window.NexCRM = window.NexCRM || {};
     getAll()       {return[...C.departments];},
     get(id)        {return C.departments.find(d=>d.id===id)||null;},
     create(data)   {C.depSeq++;const d={...data,id:uid(),createdAt:now()};C.departments.push(d);_save('departments',{items:C.departments,seq:C.depSeq});return d;},
+    // Creates many at once with a single Firestore write (avoids rapid-fire
+    // per-item saves racing against incoming snapshot listeners).
+    bulkCreate(items) {
+      const created = items.map(data => { C.depSeq++; return { ...data, id:uid(), createdAt:now() }; });
+      C.departments = [...C.departments, ...created];
+      _save('departments', { items:C.departments, seq:C.depSeq });
+      return created;
+    },
     update(id,data){const i=C.departments.findIndex(d=>d.id===id);if(i<0)return null;C.departments[i]={...C.departments[i],...data};_save('departments',{items:C.departments,seq:C.depSeq});return C.departments[i];},
     delete(id)     {C.departments=C.departments.filter(d=>d.id!==id);_save('departments',{items:C.departments,seq:C.depSeq});},
   };
@@ -393,6 +437,12 @@ window.NexCRM = window.NexCRM || {};
     getAll()       {return[...C.categories];},
     get(id)        {return C.categories.find(c=>c.id===id)||null;},
     create(data)   {C.catSeq++;const c={...data,id:uid(),createdAt:now()};C.categories.push(c);_save('ticket_cats',{items:C.categories,seq:C.catSeq});return c;},
+    bulkCreate(items) {
+      const created = items.map(data => { C.catSeq++; return { ...data, id:uid(), createdAt:now() }; });
+      C.categories = [...C.categories, ...created];
+      _save('ticket_cats', { items:C.categories, seq:C.catSeq });
+      return created;
+    },
     update(id,data){const i=C.categories.findIndex(c=>c.id===id);if(i<0)return null;C.categories[i]={...C.categories[i],...data};_save('ticket_cats',{items:C.categories,seq:C.catSeq});return C.categories[i];},
     delete(id)     {C.categories=C.categories.filter(c=>c.id!==id);_save('ticket_cats',{items:C.categories,seq:C.catSeq});},
   };
