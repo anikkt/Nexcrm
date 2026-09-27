@@ -36,6 +36,16 @@ jobs:
           S:   ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
           A:   ${{ secrets.FIREBASE_APP_ID }}
         run: |
+          echo "Checking secrets are non-empty (values themselves stay masked)..."
+          for name in K D P B S A; do
+            val="${!name}"
+            if [ -z "$val" ]; then
+              echo "❌ Secret for '$name' is EMPTY. Check Settings → Secrets and variables → Actions → Repository secrets."
+              exit 1
+            fi
+          done
+          echo "All 6 secrets are non-empty. Proceeding with injection."
+
           sed -i "s|__FIREBASE_API_KEY__|${K}|g"            js/store.js
           sed -i "s|__FIREBASE_AUTH_DOMAIN__|${D}|g"        js/store.js
           sed -i "s|__FIREBASE_PROJECT_ID__|${P}|g"         js/store.js
@@ -43,6 +53,16 @@ jobs:
           sed -i "s|__FIREBASE_MESSAGING_SENDER_ID__|${S}|g" js/store.js
           sed -i "s|__FIREBASE_APP_ID__|${A}|g"             js/store.js
           echo "Firebase config injected."
+
+          # 2b. Hard verification — fail loudly if ANY placeholder survived,
+          # instead of silently deploying a broken file like before.
+          if grep -q '__FIREBASE_' js/store.js; then
+            echo "❌ Placeholder tokens still present in js/store.js after injection:"
+            grep -n '__FIREBASE_' js/store.js
+            echo "This means sed did not match — check that the placeholder text in store.js exactly matches what this workflow searches for."
+            exit 1
+          fi
+          echo "✅ Verified — no placeholder tokens remain. Real Firebase config is in place."
 
       # 3. Package and deploy to GitHub Pages
       - name: Configure Pages
